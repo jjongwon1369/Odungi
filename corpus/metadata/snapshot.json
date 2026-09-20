@@ -1,0 +1,16 @@
+{
+  "branch_observed": "master",
+  "commit_hash": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+  "corpus_version": "0.1",
+  "coverage_hash": "bbf336ef82ab0b1dc3956b9eb107036ee75b42c9d574b5a85fd53584e0bf60ba",
+  "document_id_scheme": "SHA256 canonical [source_id, relative_posix_path]",
+  "execution_authority": "Explicit Corpus Extraction Pipeline request supersedes historical execution flags",
+  "frozen": false,
+  "normalized_hash_scheme": "SHA256 UTF-8 text",
+  "origin": "https://github.com/DS-J-L/connectedhomeip.git",
+  "pipeline_hash": "ee3de8b68704115d8d65fe56faf87d55047097bb8cae098a8b9f121b114b206d",
+  "raw_byte_origin": "Git committed blob; no checkout newline conversion",
+  "scope_hash": "eec94fc3153e226dc48f244dd9153a29cba72254b97a88b3f51f8e4b76dd75f7",
+  "snapshot_id": "corpus-v0.1:ee88b47ac7a901be55e52cb8039314b740d312dbff6982eec65bc3af6a735680",
+  "source_id": "connectedhomeip"
+}

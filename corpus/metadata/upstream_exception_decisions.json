@@ -1,0 +1,120 @@
+{
+  "decisions": [
+    {
+      "commit_hash": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+      "content_hash": "a040caeab50c841eae60fcb9b27ed14c45e25477859911844a3abfd2e60bc931",
+      "corpus_change_required": false,
+      "coverage_id": "R005",
+      "decision": "external_reference_only",
+      "essential_as_normalized_experiment_input": false,
+      "essential_for_current_rebuild": true,
+      "essential_for_current_rebuild_reason": "Graph.evidence reads and hashes this pinned blob; validate checks it. Full pinned checkout provides it. Parser execution is not required.",
+      "line_end": 1964,
+      "line_start": 1961,
+      "outside_reason": "Finalized allowlist excludes Python testing infrastructure; explicit provenance reference retained without raw collection",
+      "primary_document_id": "doc:31dfae6bbbebed23264831ec1177c8c292a114eee5215553f58154b891269640",
+      "reason": "Evidence for applying Base server clusters to device types; preserve exact commit/path/hash as external reference. No source inclusion or removal needed.",
+      "relation_id": "rel:83d339635dd211e80d2f6d8c620cdfb4def07bab43bb7a1f5fe1996978beb764",
+      "source_entity": {
+        "id": "0x0073",
+        "kind": "device_type",
+        "namespace": "matter"
+      },
+      "source_path": "src/python_testing/matter_testing_infrastructure/matter/testing/spec_parsing.py",
+      "source_url": "https://github.com/project-chip/connectedhomeip/blob/1ac132b5ecd42cb6c78772f2576ed6f7fc814183/src/python_testing/matter_testing_infrastructure/matter/testing/spec_parsing.py#L1961-L1964",
+      "target_entity": {
+        "id": "BaseDeviceType",
+        "kind": "device_type_base",
+        "namespace": "matter"
+      }
+    },
+    {
+      "commit_hash": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+      "content_hash": "a040caeab50c841eae60fcb9b27ed14c45e25477859911844a3abfd2e60bc931",
+      "corpus_change_required": false,
+      "coverage_id": "R008",
+      "decision": "external_reference_only",
+      "essential_as_normalized_experiment_input": false,
+      "essential_for_current_rebuild": true,
+      "essential_for_current_rebuild_reason": "Graph.evidence reads and hashes this pinned blob; validate checks it. Full pinned checkout provides it. Parser execution is not required.",
+      "line_end": 1964,
+      "line_start": 1961,
+      "outside_reason": "Finalized allowlist excludes Python testing infrastructure; explicit provenance reference retained without raw collection",
+      "primary_document_id": "doc:31dfae6bbbebed23264831ec1177c8c292a114eee5215553f58154b891269640",
+      "reason": "Evidence for applying Base server clusters to device types; preserve exact commit/path/hash as external reference. No source inclusion or removal needed.",
+      "relation_id": "rel:9da525e7fa53df54dcd3962eb4e78c4ae7b300b979c7687697de5bb9ec5f08bd",
+      "source_entity": {
+        "id": "0x0072",
+        "kind": "device_type",
+        "namespace": "matter"
+      },
+      "source_path": "src/python_testing/matter_testing_infrastructure/matter/testing/spec_parsing.py",
+      "source_url": "https://github.com/project-chip/connectedhomeip/blob/1ac132b5ecd42cb6c78772f2576ed6f7fc814183/src/python_testing/matter_testing_infrastructure/matter/testing/spec_parsing.py#L1961-L1964",
+      "target_entity": {
+        "id": "BaseDeviceType",
+        "kind": "device_type_base",
+        "namespace": "matter"
+      }
+    },
+    {
+      "commit_hash": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+      "content_hash": "a040caeab50c841eae60fcb9b27ed14c45e25477859911844a3abfd2e60bc931",
+      "corpus_change_required": false,
+      "coverage_id": "R011",
+      "decision": "external_reference_only",
+      "essential_as_normalized_experiment_input": false,
+      "essential_for_current_rebuild": true,
+      "essential_for_current_rebuild_reason": "Graph.evidence reads and hashes this pinned blob; validate checks it. Full pinned checkout provides it. Parser execution is not required.",
+      "line_end": 1964,
+      "line_start": 1961,
+      "outside_reason": "Finalized allowlist excludes Python testing infrastructure; explicit provenance reference retained without raw collection",
+      "primary_document_id": "doc:31dfae6bbbebed23264831ec1177c8c292a114eee5215553f58154b891269640",
+      "reason": "Evidence for applying Base server clusters to device types; preserve exact commit/path/hash as external reference. No source inclusion or removal needed.",
+      "relation_id": "rel:9dea63e9f892af4cf721ae7580772eec01284086a587335c0250362c35da4df2",
+      "source_entity": {
+        "id": "0x0070",
+        "kind": "device_type",
+        "namespace": "matter"
+      },
+      "source_path": "src/python_testing/matter_testing_infrastructure/matter/testing/spec_parsing.py",
+      "source_url": "https://github.com/project-chip/connectedhomeip/blob/1ac132b5ecd42cb6c78772f2576ed6f7fc814183/src/python_testing/matter_testing_infrastructure/matter/testing/spec_parsing.py#L1961-L1964",
+      "target_entity": {
+        "id": "BaseDeviceType",
+        "kind": "device_type_base",
+        "namespace": "matter"
+      }
+    },
+    {
+      "commit_hash": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+      "content_hash": "a040caeab50c841eae60fcb9b27ed14c45e25477859911844a3abfd2e60bc931",
+      "corpus_change_required": false,
+      "coverage_id": "R014",
+      "decision": "external_reference_only",
+      "essential_as_normalized_experiment_input": false,
+      "essential_for_current_rebuild": true,
+      "essential_for_current_rebuild_reason": "Graph.evidence reads and hashes this pinned blob; validate checks it. Full pinned checkout provides it. Parser execution is not required.",
+      "line_end": 1964,
+      "line_start": 1961,
+      "outside_reason": "Finalized allowlist excludes Python testing infrastructure; explicit provenance reference retained without raw collection",
+      "primary_document_id": "doc:31dfae6bbbebed23264831ec1177c8c292a114eee5215553f58154b891269640",
+      "reason": "Evidence for applying Base server clusters to device types; preserve exact commit/path/hash as external reference. No source inclusion or removal needed.",
+      "relation_id": "rel:167ace1ae612acbd36b7ccf424edbd65f775989148526c96daf18a096e295cba",
+      "source_entity": {
+        "id": "0x0071",
+        "kind": "device_type",
+        "namespace": "matter"
+      },
+      "source_path": "src/python_testing/matter_testing_infrastructure/matter/testing/spec_parsing.py",
+      "source_url": "https://github.com/project-chip/connectedhomeip/blob/1ac132b5ecd42cb6c78772f2576ed6f7fc814183/src/python_testing/matter_testing_infrastructure/matter/testing/spec_parsing.py#L1961-L1964",
+      "target_entity": {
+        "id": "BaseDeviceType",
+        "kind": "device_type_base",
+        "namespace": "matter"
+      }
+    }
+  ],
+  "policy": "External references are explicit, pinned and validated; pass does not mean all evidence is stored inside Corpus",
+  "review_date": "2026-09-20",
+  "snapshot_id": "corpus-v0.1:ee88b47ac7a901be55e52cb8039314b740d312dbff6982eec65bc3af6a735680",
+  "status": "pass"
+}
