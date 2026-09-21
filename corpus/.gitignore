@@ -1,0 +1,7 @@
+# Local corpus payloads are not cleared for public redistribution.
+/raw/connectedhomeip/
+/processed/documents.jsonl
+# Generated detailed records may contain source excerpts; keep local with payloads.
+/metadata/relations.jsonl
+/metadata/entities.jsonl
+/metadata/freeze_audit.json

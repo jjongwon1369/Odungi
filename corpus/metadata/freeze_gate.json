@@ -1,0 +1,236 @@
+{
+  "blocking_checks": [
+    "licensing_review",
+    "cross_review"
+  ],
+  "checks": [
+    {
+      "details": "Finalized scope unchanged; 23 clusters, 42 device-cluster relations",
+      "evidence": [
+        "metadata/scope.json",
+        "metadata/coverage_matrix.csv"
+      ],
+      "name": "scope",
+      "status": "pass"
+    },
+    {
+      "details": "Pinned commit and clean source checkout verified",
+      "evidence": [
+        "metadata/snapshot.json",
+        "metadata/validation_report.json"
+      ],
+      "name": "ssot",
+      "status": "pass"
+    },
+    {
+      "details": "59 included rows, 32 excluded audit rows",
+      "evidence": [
+        "metadata/validation_report.json"
+      ],
+      "name": "coverage",
+      "status": "pass"
+    },
+    {
+      "details": {
+        "documentation_missing": 20,
+        "unavailable_source": 1
+      },
+      "evidence": [
+        "research/missing_analysis.md",
+        "metadata/freeze_audit.json"
+      ],
+      "name": "missing_analysis",
+      "status": "pass"
+    },
+    {
+      "details": "All requested statistics independently recomputed; global physical deduplication, multivalued device/cluster associations",
+      "evidence": [
+        "metadata/statistics.json",
+        "metadata/freeze_audit.json"
+      ],
+      "name": "statistics",
+      "status": "pass"
+    },
+    {
+      "details": "Source-specific revisions preserved; no semantic consistency evaluation",
+      "evidence": [
+        "metadata/corpus_manifest.csv",
+        "metadata/freeze_audit.json"
+      ],
+      "name": "source_revision_records",
+      "status": "pass"
+    },
+    {
+      "details": {
+        "chain": "document_id -> manifest -> raw_path -> source_path -> committed Git blob",
+        "count": 282,
+        "status": "pass"
+      },
+      "evidence": [
+        "metadata/freeze_audit.json"
+      ],
+      "name": "manifest_provenance",
+      "status": "pass"
+    },
+    {
+      "details": "All 764 primary document and entity references valid; upstream-only evidence explicitly marked",
+      "evidence": [
+        "metadata/validation_report.json"
+      ],
+      "name": "relations_validity",
+      "status": "pass"
+    },
+    {
+      "details": {
+        "all_evidence_is_internal": false,
+        "corpus_change_required": false,
+        "count": 4,
+        "decision": "external_reference_only",
+        "pinned_checkout_required_for_rebuild": true,
+        "previous_check": "all_evidence_corpus_document_linkage",
+        "review_basis": "User requested explicit classification; preserve existing pinned external provenance without scope mutation"
+      },
+      "evidence": [
+        "research/upstream_exceptions.md",
+        "metadata/upstream_exception_decisions.json"
+      ],
+      "name": "upstream_exception_review",
+      "status": "pass"
+    },
+    {
+      "details": {
+        "files": 282,
+        "missing": [],
+        "unexpected": []
+      },
+      "evidence": [
+        "metadata/validation_report.json",
+        "metadata/freeze_audit.json"
+      ],
+      "name": "raw_hash",
+      "status": "pass"
+    },
+    {
+      "details": {
+        "documents": 282,
+        "spans": 755
+      },
+      "evidence": [
+        "metadata/validation_report.json",
+        "metadata/freeze_audit.json"
+      ],
+      "name": "normalization",
+      "status": "pass"
+    },
+    {
+      "details": {
+        "comparison": "selected original spans vs normalized lexical inventory",
+        "identifier_occurrences": 191531,
+        "semantic_conformance_evaluated": false
+      },
+      "evidence": [
+        "metadata/validation_report.json",
+        "metadata/freeze_audit.json"
+      ],
+      "name": "identifier_preservation",
+      "status": "pass"
+    },
+    {
+      "details": {
+        "artifact_set_hash": "43eb0ad2fc0237c0cbdfbbf770e1b7b10639d809aac017406a4bcab3d6db8461",
+        "builds": 2,
+        "compared_files": 288,
+        "document_ids": "identical",
+        "normalized_hashes": "identical",
+        "raw_sha256": "identical",
+        "relations": "identical"
+      },
+      "evidence": [
+        "metadata/validation_report.json",
+        "metadata/freeze_audit.json"
+      ],
+      "name": "deterministic_rebuild",
+      "status": "pass"
+    },
+    {
+      "details": {
+        "counts": {
+          "needs_review": 34,
+          "redistributable": 217,
+          "reference_only": 31
+        },
+        "current_complete_raw_distribution_approved": false,
+        "per_source_classification_complete": true,
+        "remaining": "Unresolved source rights and current raw/normalized treatment of reference-only content; changes proposed only"
+      },
+      "evidence": [
+        "research/licensing_review.md",
+        "metadata/source_licensing.json"
+      ],
+      "name": "licensing_review",
+      "status": "needs_review"
+    },
+    {
+      "details": {
+        "actual_review_received": false,
+        "required_reviewers": 1,
+        "reviewers": [],
+        "template_complete": true
+      },
+      "evidence": [
+        "research/freeze_review_checklist.md"
+      ],
+      "name": "cross_review",
+      "status": "pending"
+    }
+  ],
+  "corpus_payload_changed": false,
+  "corpus_version": "0.1",
+  "corpus_version_change_required_now": false,
+  "cross_review": "pending",
+  "evidence_sha256": {
+    "HANDOFF.md": "4ed7838bee31fd40e2c4ae2e4b86a38911c45d278ef262a1084dc31726fd8d19",
+    "metadata/corpus_manifest.csv": "9cabb6810622bfafc442919cb12362b2e8c1eb7a39c708b091912703320c0804",
+    "metadata/coverage_matrix.csv": "bbf336ef82ab0b1dc3956b9eb107036ee75b42c9d574b5a85fd53584e0bf60ba",
+    "metadata/entities.jsonl": "046da4562f8e94e1382d7dc606a1e759103a1dc11efee5855d492f7c4d3e9a83",
+    "metadata/freeze_audit.json": "ef9af19a344847cd5d05f032f861eefca71ec078a9b7fca75b1b8141e3beb540",
+    "metadata/relations.jsonl": "dc5f1fd7a701cac3951739752cf1f4ba3ae2323e75b5fa17647612372786c000",
+    "metadata/scope.json": "eec94fc3153e226dc48f244dd9153a29cba72254b97a88b3f51f8e4b76dd75f7",
+    "metadata/snapshot.json": "8f2c6c53c7fa4d5347f2da06260ebf14dee5bea7c1d2e2b46702789c6d44747e",
+    "metadata/source_licensing.json": "3c0aef68f5d985fd9d11a4a3f5d53069a975e77640a7c793b2979fdf19fa129a",
+    "metadata/statistics.json": "a8e6811fa5a20a8fe1fa62d5b15c1a52c66f2fc451f7883a5f44ce76ed3d1449",
+    "metadata/upstream_exception_decisions.json": "fce9777af057939f79b9505483a6f7926c47e274d81eea7773b8234374d8472c",
+    "metadata/validation_report.json": "28457eee225c43e8545f85ef4345a222ca91b2f286f620300b69b6b4a84beb94",
+    "processed/documents.jsonl": "95739c7c254b64657830b3a90963b19ec2292ec3dafd85743329f50a849ca03a",
+    "research/freeze_review_checklist.md": "3bf3779c4823675b0fc1f4a4671c8a6926fd48fa272a32ef884d3533c9ff06ac",
+    "research/licensing_review.md": "3382a78b8f963f32e265336321a31be05d31a985b2d4190ffc19e56bb848f2b2",
+    "research/missing_analysis.md": "45fb9c811d099387bc7ad0460f5ef69c0f973276df4f37724d7741eea7f4c34a",
+    "research/upstream_exceptions.md": "9cb859adb5cde3f41204b7893e9832a931d869a19638931e9390b927c55454ed"
+  },
+  "freeze_performed": false,
+  "licensing_review": "needs_review",
+  "out_of_scope": [
+    "RAG chunking",
+    "embedding",
+    "vector DB",
+    "retrieval settings/performance",
+    "Wiki compilation",
+    "Wiki context suitability",
+    "answer accuracy",
+    "Code-Document Consistency evaluation",
+    "benchmark questions",
+    "Gold Answers",
+    "tokenizer/model architecture decisions"
+  ],
+  "preparation_review_completed": true,
+  "ready_for_freeze": false,
+  "review_updated_on": "2026-09-20",
+  "schema_version": "1.0",
+  "snapshot_id": "corpus-v0.1:ee88b47ac7a901be55e52cb8039314b740d312dbff6982eec65bc3af6a735680",
+  "ssot_commit": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+  "status_policy": "All required checks must pass. Upstream exception review assesses explicit pinned external-reference decisions, not internal storage of every evidence item. Licensing and actual team review cannot be inferred from template completion.",
+  "tag_created": false,
+  "tag_creation_eligible": false,
+  "target_version": "1.0",
+  "upstream_exception_review": "pass"
+}

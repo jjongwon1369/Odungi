@@ -1,0 +1,2 @@
+# Preserve scope inputs and review evidence hashes across Git checkouts too.
+* -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
