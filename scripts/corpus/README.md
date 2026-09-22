@@ -5,10 +5,43 @@ Python 3.10+ 표준 라이브러리와 Git만 사용한다. 외부 패키지 설
 origin은 GitHub의 connectedhomeip 또는 그 fork인지 검사하고, 실제 정체성은 고정 commit과 추적 파일로 확인한다.
 dirty checkout, 다른 commit, 누락 경로, Scope/Coverage 불일치에서 실패한다.
 
+## Windows PowerShell에서 처음부터 빌드
+
+`connectedhomeip`와 이 프로젝트를 같은 workspace 아래에 별도로 둔다.
+
+```text
+workspace/
+├── connectedhomeip/
+└── project/
+```
+
+PowerShell에서 다음 순서로 준비하고 실행한다. 두 저장소를 clone한 뒤 `project` 디렉터리로 이동한 상태를
+기준으로 한다.
+
 ```powershell
-python scripts/corpus/extract_corpus.py --source-repo ../connectedhomeip --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json --dry-run
-python scripts/corpus/extract_corpus.py --source-repo ../connectedhomeip --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json
-python scripts/corpus/extract_corpus.py --source-repo ../connectedhomeip --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json --validate-only
+git -C ..\connectedhomeip checkout 1ac132b5ecd42cb6c78772f2576ed6f7fc814183
+$env:CONNECTEDHOMEIP_PATH = (Resolve-Path "..\connectedhomeip").Path
+python scripts/corpus/build.py
+```
+
+`CONNECTEDHOMEIP_PATH`는 connectedhomeip checkout의 절대 경로여야 한다. `build.py`는 환경변수와
+디렉터리의 존재 여부, Git 저장소/원격 정체성, clean 상태, 고정 HEAD, `scope.json`의 commit을 먼저
+확인한다. 이후 기존 `extract_corpus.py`를 호출해 raw 추출, 정규화, `documents.jsonl`, manifest,
+relations, entities, statistics 생성과 전체 validation 및 결정성 재빌드를 순서대로 수행한다.
+
+성공 기준은 raw 282개, normalized document 282개, relation 764개, 고유 cluster 23개,
+validation failure 0개다. 하나라도 다르면 명령은 exit code 1로 실패한다.
+
+환경변수는 현재 PowerShell 세션에만 유지된다. 새 터미널에서는 다시 설정해야 한다.
+
+## 개별 파이프라인 명령
+
+문제 진단이나 검증만 따로 수행해야 할 때는 아래의 기존 CLI를 직접 사용할 수 있다.
+
+```powershell
+python scripts/corpus/extract_corpus.py --source-repo $env:CONNECTEDHOMEIP_PATH --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json --dry-run
+python scripts/corpus/extract_corpus.py --source-repo $env:CONNECTEDHOMEIP_PATH --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json
+python scripts/corpus/extract_corpus.py --source-repo $env:CONNECTEDHOMEIP_PATH --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json --validate-only
 python -m unittest discover -s scripts/corpus/tests -v
 ```
 

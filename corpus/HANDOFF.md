@@ -38,8 +38,24 @@ optional/conditional 관계를 실제 기능 활성화로 해석하지 않는다
 
 ## 변경과 재생성
 
+Windows PowerShell에서 `connectedhomeip`와 project를 같은 workspace 아래에 별도로 clone한다.
+project 디렉터리에서 다음과 같이 고정 commit을 checkout하고 절대 경로 환경변수를 설정한 뒤,
+단일 build 명령을 실행한다.
+
 ```powershell
-python scripts/corpus/extract_corpus.py --source-repo ../connectedhomeip --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json --validate-only
+git -C ..\connectedhomeip checkout 1ac132b5ecd42cb6c78772f2576ed6f7fc814183
+$env:CONNECTEDHOMEIP_PATH = (Resolve-Path "..\connectedhomeip").Path
+python scripts/corpus/build.py
+```
+
+`build.py`는 외부 checkout을 수정하지 않는다. 환경변수/경로, Git 저장소, clean 상태와 고정 HEAD,
+`scope.json`을 확인한 뒤 기존 extraction/normalization/validation 구현을 호출한다. 정상 결과는 raw 282개,
+normalized document 282개, relation 764개, 고유 cluster 23개, validation failure 0개다.
+
+기존 산출물만 검증하려면 같은 환경변수를 유지한 상태에서 다음을 실행한다.
+
+```powershell
+python scripts/corpus/extract_corpus.py --source-repo $env:CONNECTEDHOMEIP_PATH --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json --validate-only
 python -m unittest discover -s scripts/corpus/tests -v
 ```
 
