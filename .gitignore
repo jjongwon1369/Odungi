@@ -17,3 +17,4 @@ check_models.py
 model_check.txt
 run_compile2.sh
 .commit_msg.txt
+.pr_body.md
