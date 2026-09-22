@@ -1,0 +1,19 @@
+# 로컬 환경변수 (API 키 등) - 절대 커밋 금지
+.env
+.env.local
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# 컴파일 실행 로그 (로컬 전용)
+compile_log.txt
+run_compile.sh
+compile_wiki.py.bak
+check_models.py
+model_check.txt
+run_compile2.sh
+.commit_msg.txt
