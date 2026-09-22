@@ -63,6 +63,7 @@ corpus/
 ├── DATASET_CARD.md               # 데이터셋 카드
 ├── CHANGELOG.md                  # 버전 변경 기록
 ├── HANDOFF.md                    # RAG/LLM Wiki 담당자 인계서
+├── ROADMAP.md                    # C3→C6→C12 규모 확장 실험 계획
 └── PUBLISHING.md                 # 공개·재배포 경계
 scripts/corpus/                   # 추출·정규화·검증 CLI와 테스트
 ```
@@ -72,17 +73,62 @@ scripts/corpus/                   # 추출·정규화·검증 CLI와 테스트
 
 ## How to Reproduce
 
-Python 3.10+, Git, 고정 commit의 clean `../connectedhomeip` checkout이 필요하다. 프로젝트 루트에서 실행한다.
+Python 3.10+와 Git이 필요하며 외부 Python 패키지나 connectedhomeip 빌드는 필요하지 않다.
+`connectedhomeip`와 이 프로젝트를 같은 workspace 아래에 별도 저장소로 둔다.
+
+```text
+workspace/
+├── connectedhomeip/
+└── project/
+```
+
+Windows PowerShell에서 두 저장소를 clone한 뒤 project 디렉터리로 이동한다. connectedhomeip를 고정
+commit으로 checkout하고 절대 경로를 환경변수로 전달한 다음 단일 build 명령을 실행한다.
 
 ```powershell
-python scripts/corpus/extract_corpus.py --source-repo ../connectedhomeip --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json --dry-run
-python scripts/corpus/extract_corpus.py --source-repo ../connectedhomeip --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json
-python scripts/corpus/extract_corpus.py --source-repo ../connectedhomeip --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json --validate-only
+git -C ..\connectedhomeip checkout 1ac132b5ecd42cb6c78772f2576ed6f7fc814183
+$env:CONNECTEDHOMEIP_PATH = (Resolve-Path "..\connectedhomeip").Path
+python scripts/corpus/build.py
+```
+
+`build.py`는 다음 작업을 순서대로 수행한다.
+
+1. `CONNECTEDHOMEIP_PATH`가 설정된 절대 경로인지 확인한다.
+2. 경로가 GitHub connectedhomeip 저장소 또는 fork이며 clean 상태인지 확인한다.
+3. HEAD가 고정 commit과 정확히 일치하는지 확인한다.
+4. `metadata/scope.json`과 coverage 입력을 로드한다.
+5. 고정 commit의 Git blob에서 raw 파일을 추출한다.
+6. 범위 규칙에 따라 원문 span을 정규화한다.
+7. `processed/documents.jsonl`을 생성한다.
+8. manifest, entities, relations, statistics, snapshot을 생성한다.
+9. 전체 검증과 두 번의 독립 결정성 재빌드를 수행한다.
+
+성공하면 마지막에 다음 기준을 출력한다.
+
+| 검사 항목 | 기대값 |
+|---|---:|
+| Raw files | 282 |
+| Normalized documents | 282 |
+| Relations | 764 |
+| Unique clusters | 23 |
+| Validation failures | 0 |
+
+validation 상태는 알려진 coverage gap과 미결정 tokenizer 때문에 `warning`일 수 있지만 실패 수는 0이어야 한다.
+환경변수는 현재 PowerShell 세션에만 유지되므로 새 터미널에서는 다시 설정한다.
+
+### 검증 또는 테스트만 실행
+
+기존 산출물을 수정하지 않고 검증하거나 통합 테스트만 실행하려면 다음 명령을 사용한다.
+
+```powershell
+python scripts/corpus/extract_corpus.py --source-repo $env:CONNECTEDHOMEIP_PATH --scope corpus/metadata/scope.json --output corpus/raw --snapshot corpus/metadata/snapshot.json --validate-only
 python -m unittest discover -s scripts/corpus/tests -v
 ```
 
-재생성 전에 [licensing_review.md](research/licensing_review.md)의 이용 조건을 확인해야 한다.
-CLI의 정확한 계약과 실패 조건은 [scripts/corpus/README.md](../scripts/corpus/README.md)에 있다.
+실패 시 먼저 환경변수가 절대 경로인지, checkout이 clean한지, HEAD가 고정 commit인지 확인한다.
+파이프라인은 입력 저장소를 자동으로 checkout, fetch, reset하거나 수정하지 않는다. 정확한 CLI 계약과
+실패 조건은 [scripts/corpus/README.md](../scripts/corpus/README.md)에 있다. 재생성·공유 전에는
+[licensing_review.md](research/licensing_review.md)의 이용 조건도 확인해야 한다.
 
 ## Metadata
 
@@ -101,6 +147,27 @@ source revision, 2회 결정적 재생성이 모두 통과했다. 13개 단위 �
 
 warning은 허용된 coverage gap 21개, revision 의미 정합성 미평가, tokenizer 미결정이다.
 자세한 기계 판독 결과는 [validation_report.json](metadata/validation_report.json)에 있다.
+
+## Scale Experiment Roadmap
+
+현재 3개 제품군 Corpus는 향후 규모 비교 실험의 C3 기준선이다. 동일한 SSOT, metadata schema,
+normalization, validation 규칙을 유지하면서 C6와 C12로 확장한다.
+
+```text
+C3 (3 product families) ⊂ C6 (6) ⊂ C12 (12)
+```
+
+각 tier는 이전 tier의 superset이어야 한다. 확장할 때마다 documents, relations, clusters, raw size,
+token count를 기록하고 다음 성능·비용 지표와 함께 비교한다.
+
+- Answer accuracy와 groundedness
+- Hallucination rate와 identifier accuracy
+- Retrieval performance와 response latency
+- Query token usage
+- Ingestion / compilation cost
+
+이 실험은 제품군 수만 비교하는 것이 아니라 실제 정보량 증가가 단일 RAG, 분해형 RAG, LLM Wiki에
+미치는 영향을 분석한다. 세부 계획과 tier 정의는 [ROADMAP.md](ROADMAP.md)를 기준으로 한다.
 
 ## Version
 
