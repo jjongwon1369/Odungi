@@ -189,7 +189,7 @@
   "corpus_version_change_required_now": false,
   "cross_review": "pending",
   "evidence_sha256": {
-    "HANDOFF.md": "4ed7838bee31fd40e2c4ae2e4b86a38911c45d278ef262a1084dc31726fd8d19",
+    "HANDOFF.md": "8e89f6ca57d78f0b55d1f5c2092d13848a3a9e3f78ccab93f1e8c76695db6bbb",
     "metadata/corpus_manifest.csv": "9cabb6810622bfafc442919cb12362b2e8c1eb7a39c708b091912703320c0804",
     "metadata/coverage_matrix.csv": "bbf336ef82ab0b1dc3956b9eb107036ee75b42c9d574b5a85fd53584e0bf60ba",
     "metadata/entities.jsonl": "046da4562f8e94e1382d7dc606a1e759103a1dc11efee5855d492f7c4d3e9a83",
@@ -224,7 +224,7 @@
   ],
   "preparation_review_completed": true,
   "ready_for_freeze": false,
-  "review_updated_on": "2026-09-20",
+  "review_updated_on": "2026-09-22",
   "schema_version": "1.0",
   "snapshot_id": "corpus-v0.1:ee88b47ac7a901be55e52cb8039314b740d312dbff6982eec65bc3af6a735680",
   "ssot_commit": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
