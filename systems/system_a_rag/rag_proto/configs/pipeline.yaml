@@ -1,0 +1,66 @@
+# 파이프라인 하이퍼파라미터
+# 이 파일의 해시가 답변 JSON의 config_hash로 기록된다.
+# 값을 바꾸면 config_hash가 바뀌므로, 어떤 설정으로 낸 수치인지 사후 추적 가능하다.
+
+# --- S2 청킹 ---
+chunking:
+  # 베이스라인 논문(arXiv 2605.18490)과 동일 설정.
+  # 논문은 마크다운 헤더 기반 청킹 + 토큰 제한 2차 분할, 목표 512 / 중첩 50.
+  target_tokens: 512
+  overlap_tokens: 50
+  # 구조 단위(헤딩, 코드 블록)가 있으면 그것을 우선하고 target_tokens는 상한으로만 적용
+  prefer_structural_boundary: true
+  min_chunk_chars: 50
+  # 청크 앞에 heading_path를 컨텍스트 헤더로 덧붙인다
+  prepend_heading_context: true
+
+# --- S3 임베딩 ---
+embedding:
+  model: "BAAI/bge-m3"
+  normalize: true
+  batch_size: 16
+  device: "cpu"          # auto | cuda | cpu. CPU 폴백 시 소요 시간을 별도 기록한다
+  cache_dir: "./data/.embed_cache"
+
+# --- S4 벡터DB ---
+vectorstore:
+  backend: "chroma"
+  persist_dir: "./data/chroma"
+  collection: "rag_proto"
+  distance: "cosine"
+
+# --- S5 검색 ---
+retrieval:
+  bm25_k: 50
+  vector_k: 50
+  fusion: "rrf"
+  rrf_k: 60               # RRF 상수. 통상 60
+  reranker_model: "BAAI/bge-reranker-v2-m3"
+  rerank_top_k: 5         # 베이스라인 논문도 top-5
+
+# --- S6 생성 ---
+generation:
+  model: "unset"  # RAG와 LLM 위키가 반드시 동일 모델을 써야 비교 성립
+  max_tokens: 2048
+  temperature: 0.0
+  # 인용 표기 형식. 이 형식으로 파싱해 citation 무결성을 검사한다
+  citation_pattern: '\[([a-zA-Z0-9_\-]+)\]'
+
+# --- 식별자 추출 ---
+# 명세서 §01 원칙 3: 식별자 무손실.
+# 각 단계 출력을 이 패턴으로 추출한 집합과 대조한다.
+identifiers:
+  patterns:
+    - '\b0x[0-9A-Fa-f]{4}\b'                      # 클러스터/속성 ID (예: 0x0006)
+    - '\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b'     # CamelCase (예: TemperatureSetpoint)
+  # 오탐이 잦은 일반 단어는 제외
+  stopwords:
+    - "GitHub"
+    - "JavaScript"
+    - "TypeScript"
+    - "README"
+
+# --- 질의 모드 ---
+query:
+  mode: "simple"          # simple | decomposed
+  decompose_max_subq: 5   # Phase 1에서는 자리만 확보, 미구현
