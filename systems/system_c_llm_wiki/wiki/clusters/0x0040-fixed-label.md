@@ -4,55 +4,157 @@ ids: ['0x0040']
 source_paths: ['src/app/zap-templates/zcl/data-model/chip/fixed-label-cluster.xml', 'src/app/clusters/fixed-label-server/FixedLabelCluster.cpp', 'src/app/clusters/fixed-label-server/FixedLabelCluster.h', 'src/app/clusters/fixed-label-server/CodegenIntegration.cpp', 'data_model/1.7/clusters/FixedLabel-Cluster.xml']
 commit_hash: 1ac132b5ecd42cb6c78772f2576ed6f7fc814183
 doc_type: cluster
+compiled_by: openai/gpt-5.6-luna
 ---
 
-## 개요
-Fixed Label 클러스터는 장치가 엔드포인트에 0개 이상의 읽기 전용(read-only) 레이블을 태그할 수 있는 기능을 제공합니다. 이 클러스터는 유틸리티 역할을 수행하며 엔드포인트 범위에서 정의됩니다.
+# Fixed Label
 
 ## 스펙
-### 클러스터 식별자
-*   **ID**: `0x0040`
-*   **Name**: `Fixed Label`
-*   **Revision**: 1
-*   **PICS Code**: `FLABEL`
 
-### 속성 (Attributes)
-| ID | 이름 | 타입 | 액세스 | 필수 여부 | 품질 |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| `0x0000` | `LabelList` | `list[LabelStruct]` | Read | 필수 | Non-Volatile |
+- 클러스터: `Fixed Label Cluster`
+- 클러스터 ID: `0x0040`
+- 클러스터 이름: `Fixed Label`
+- revision: `1`
+- classification:
+  - hierarchy: `derived`
+  - baseCluster: `Label`
+  - role: `utility`
+  - picsCode: `FLABEL`
+  - scope: `Endpoint`
+- revision history:
+  - revision `1`: `Initial revision`
 
-### 데이터 구조 (Data Structures)
-#### LabelStruct
-| 필드 ID | 이름 | 타입 | 길이 | 설명 |
-| :--- | :--- | :--- | :--- | :--- |
-| 0 | `Label` | `char_string` | 16 | 레이블 명칭 |
-| 1 | `Value` | `char_string` | 16 | 레이블 값 |
+### 속성
+
+| ID | 이름 | 타입 | 기본값 | 접근 권한 | 품질 | 적합성 |
+|---|---|---|---|---|---|---|
+| `0x0000` | `LabelList` | `list` | `empty` | read: `true`, readPrivilege: `view` | `nonVolatile` | mandatory |
+
+- `LabelList`의 entry type: `LabelStruct`
 
 ## SDK 정의
-### ZAP 템플릿
-*   **파일 경로**: `src/app/zap-templates/zcl/data-model/chip/fixed-label-cluster.xml`
-*   **클러스터 정의**:
-    *   `Name`: `Fixed Label`
-    *   `Code`: `0x0040`
-    *   `Define`: `FIXED_LABEL_CLUSTER`
-*   **구조체 정의**: `LabelStruct` (Cluster code `0x0040`, `0x0041`에서 공용)
-*   **글로벌 속성**: `ClusterRevision` (코드 `0xFFFD`, 기본값 1)
+
+### 파일
+
+`src/app/zap-templates/zcl/data-model/chip/fixed-label-cluster.xml`
+
+### `LabelStruct`
+
+- 클러스터 코드:
+  - `0x0040`
+  - `0x0041`
+- 필드:
+  - `fieldId="0"`: `Label`
+    - type: `char_string`
+    - length: `16`
+  - `fieldId="1"`: `Value`
+    - type: `char_string`
+    - length: `16`
+
+### 클러스터
+
+- domain: `General`
+- name: `Fixed Label`
+- code: `0x0040`
+- define: `FIXED_LABEL_CLUSTER`
+- description: The Fixed Label Cluster provides a feature for the device to tag an endpoint with zero or more read only labels.
+- client: `true`
+- server: `true`
+- global attribute:
+  - code: `0xFFFD`
+  - side: `either`
+  - value: `1`
+- attribute:
+  - side: `server`
+  - code: `0x0000`
+  - name: `LabelList`
+  - define: `LABEL_LIST`
+  - type: `array`
+  - entryType: `LabelStruct`
 
 ## 구현
-### 서버 구현 (C++)
-*   **파일 경로**: `src/app/clusters/fixed-label-server/FixedLabelCluster.cpp`, `FixedLabelCluster.h`
-*   **주요 클래스**: `FixedLabelCluster`
-    *   `DefaultServerCluster`를 상속받아 구현됩니다.
-    *   `ReadAttribute` 함수를 통해 `LabelList`, `ClusterRevision`, `FeatureMap` 속성 읽기 요청을 처리합니다.
-    *   `ReadLabelList` 내부 함수에서 `DeviceLayer::DeviceInfoProvider`의 `IterateFixedLabel(endpoint)`를 호출하여 실제 레이블 데이터를 순회하며 인코딩합니다.
 
-### 통합 및 초기화
-*   **파일 경로**: `src/app/clusters/fixed-label-server/CodegenIntegration.cpp`
-*   **초기화 콜백**: `MatterFixedLabelClusterInitCallback(EndpointId endpointId)`
-    *   `CodegenClusterIntegration::RegisterServer`를 통해 해당 엔드포인트에 클러스터 서버를 등록합니다.
-    *   `IntegrationDelegate`를 사용하여 `FixedLabelCluster` 인스턴스의 생성 및 해제를 관리합니다.
-*   **서버 인스턴스 관리**: `LazyRegisteredServerCluster<FixedLabelCluster>`를 사용하여 정적 및 동적 엔드포인트 수에 맞춰 서버 인스턴스를 관리합니다.
+### 파일
 
-## 관련 문서
-*   `src/data_model/FixedLabel-Cluster.adoc`
-*   `src/data_model/UserLabel-Cluster.adoc` (LabelStruct 공유)
+- `src/app/clusters/fixed-label-server/FixedLabelCluster.cpp`
+- `src/app/clusters/fixed-label-server/FixedLabelCluster.h`
+- `src/app/clusters/fixed-label-server/CodegenIntegration.cpp`
+
+### `FixedLabelCluster`
+
+`FixedLabelCluster`는 `DefaultServerCluster`를 상속하며, `DeviceLayer::DeviceInfoProvider`를 통해 `LabelList`를 제공합니다.
+
+```cpp
+class FixedLabelCluster : public DefaultServerCluster
+{
+public:
+    FixedLabelCluster(EndpointId endpoint, DeviceLayer::DeviceInfoProvider & deviceInfoProvider);
+
+    DataModel::ActionReturnStatus ReadAttribute(const DataModel::ReadAttributeRequest & request,
+                                                AttributeValueEncoder & encoder) override;
+    CHIP_ERROR Attributes(const ConcreteClusterPath & path, ReadOnlyBufferBuilder<DataModel::AttributeEntry> & builder) override;
+
+private:
+    DeviceLayer::DeviceInfoProvider & mDeviceInfoProvider;
+};
+```
+
+생성자는 `EndpointId endpoint`와 `DeviceLayer::DeviceInfoProvider & deviceInfoProvider`를 받으며, `DefaultServerCluster`를 `FixedLabel::Id`로 초기화합니다.
+
+### `ReadLabelList`
+
+`ReadLabelList`는 `provider.IterateFixedLabel(endpoint)`를 통해 `LabelStruct` 항목을 순회합니다.
+
+- iterator가 null이면 `encoder.EncodeEmptyList()`를 반환합니다.
+- iterator가 유효하면 각 `fixedlabel`을 인코딩합니다.
+- 각 항목은 `FixedLabel::Structs::LabelStruct::Type`으로 처리됩니다.
+
+### `FixedLabelCluster::ReadAttribute`
+
+다음 속성을 처리합니다.
+
+- `LabelList::Id`
+  - `ReadLabelList`를 호출합니다.
+- `ClusterRevision::Id`
+  - `FixedLabel::kRevision`을 인코딩합니다.
+- `FeatureMap::Id`
+  - `uint32_t` 값 `0`을 인코딩합니다.
+- 그 외 속성
+  - `Protocols::InteractionModel::Status::UnsupportedAttribute`를 반환합니다.
+
+### `FixedLabelCluster::Attributes`
+
+`AttributeListBuilder`를 사용하여 `FixedLabel::Attributes::kMandatoryMetadata`를 추가합니다.
+
+### Codegen 통합
+
+`CodegenIntegration.cpp`는 `FixedLabelCluster`의 서버 클러스터 등록 및 해제를 담당합니다.
+
+- 고정 클러스터 수:
+  - `FixedLabel::StaticApplicationConfig::kFixedClusterConfig.size()`
+- 최대 클러스터 수:
+  - `kFixedLabelFixedClusterCount + CHIP_DEVICE_CONFIG_DYNAMIC_ENDPOINT_COUNT`
+- 서버 저장소:
+  - `LazyRegisteredServerCluster<FixedLabelCluster> gServers[kFixedLabelMaxClusterCount]`
+
+#### `IntegrationDelegate`
+
+- `CreateRegistration`
+  - `DeviceLayer::GetDeviceInfoProvider()`를 가져옵니다.
+  - `gServers[clusterInstanceIndex].Create`를 호출합니다.
+- `FindRegistration`
+  - 구성된 서버 클러스터가 없으면 `nullptr`을 반환합니다.
+- `ReleaseRegistration`
+  - `gServers[clusterInstanceIndex].Destroy()`를 호출합니다.
+
+#### 초기화 및 종료 콜백
+
+- `MatterFixedLabelClusterInitCallback(EndpointId endpointId)`
+  - `CodegenClusterIntegration::RegisterServer`를 호출합니다.
+  - `clusterId`: `FixedLabel::Id`
+  - `fetchFeatureMap`: `false`
+  - `fetchOptionalAttributes`: `false`
+- `MatterFixedLabelClusterShutdownCallback(EndpointId endpointId, MatterClusterShutdownType shutdownType)`
+  - `CodegenClusterIntegration::UnregisterServer`를 호출합니다.
+- `MatterFixedLabelPluginServerInitCallback()`
+  - 빈 구현입니다.
