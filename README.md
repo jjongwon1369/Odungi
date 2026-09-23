@@ -24,13 +24,13 @@ Odungi/
 │   ├── system_b_decomposition_rag/    # B: 분해형 RAG
 │   │   ├── decomposition/             # 질문을 2~5개로 분해
 │   │   └── pipeline/                  # A 검색 반복·근거 병합·답변 생성
-│   └── system_c_llm_wiki/             # C: 위키 전체 정적 context 주입
+│   └── system_c_llm_wiki/             # C: 사전 컴파일 위키 + 에이전트 페이지 탐색
 │       ├── compiler/                  # 원본 → 구조화 Markdown
-│       ├── wiki/                      # 컴파일된 위키
-│       │   ├── cluster/               # Cluster·Attribute·Command
-│       │   ├── device_type/           # Device Type과 Cluster 관계
-│       │   ├── commissioning/         # Commissioning 절차
-│       │   └── implementation/        # 스펙과 구현 연결
+│       ├── wiki/                      # 컴파일된 위키 (엔티티당 1페이지)
+│       │   ├── base/                  # 공유 베이스 클러스터
+│       │   ├── clusters/              # Cluster·Attribute·Command
+│       │   ├── device-types/          # Device Type과 Cluster 관계
+│       │   └── examples/ guides/ misc/
 │       └── validation/                # 출처·식별자·context 크기 검증
 ├── evaluation/
 │   ├── judges/                        # 블라인드 품질 평가 4개 축
