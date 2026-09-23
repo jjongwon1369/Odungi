@@ -82,6 +82,12 @@ class CorpusDoc(BaseModel):
     corpus_snapshot: str | None = None   # 팀 snapshot_id (corpus-v0.1:...)
     corpus_version: str | None = None    # 팀 corpus_version (0.1, 1.0 ...)
     owner: str | None = None               # Phase 1 전용
+    # 팀 코퍼스 원본 추적용. documents.jsonl의 document_id("doc:<sha256>")와
+    # source_spans를 그대로 보존한다 — chunk_id는 인용 파싱 때문에 경로 기반
+    # 별도 ID를 쓰지만, 원본 위치 역추적은 이 필드로 한다. 개인 샘플 경로
+    # (팀 코퍼스를 안 거치는 fixture/1.4.2 변환)에서는 None.
+    upstream_document_id: str | None = None
+    source_spans: list[dict[str, Any]] | None = None
 
 
 class Chunk(BaseModel):
@@ -103,6 +109,7 @@ class Chunk(BaseModel):
     corpus_snapshot: str | None = None   # 팀 snapshot_id (corpus-v0.1:...)
     corpus_version: str | None = None    # 팀 corpus_version (0.1, 1.0 ...)
     owner: str | None = None
+    upstream_document_id: str | None = None  # doc.upstream_document_id 그대로 전파
 
     @field_validator("chunk_id")
     @classmethod

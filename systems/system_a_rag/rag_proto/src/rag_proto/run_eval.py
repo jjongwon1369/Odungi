@@ -18,6 +18,7 @@ data/queries.jsonl → runs/<타임스탬프>/answers.jsonl + summary.json
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 import traceback
@@ -61,11 +62,15 @@ def score_identifiers(query: EvalQuery, record: AnswerRecord) -> dict:
 
     답변 본문으로 대조한다. identifiers_in_answer는 추출 정규식을 거치므로
     On, Off 같은 단일 단어 식별자가 빠진다. (check_queries가 경고하는 그 한계)
+
+    단순 부분 문자열(`g in answer`)로 대조하면 gold "On"이 "OnOff"나
+    "OnWithTimedOff" 내부에 있어도 hit으로 잡혀 재현율이 과대 계상된다.
+    \b 단어 경계로 정확히 대조한다 (hex ID·CamelCase·단일 단어 전부 커버).
     """
     gold = query.gold_identifiers
     if not gold:
         return {"gold": 0, "hit": 0, "missed": [], "recall": None}
-    hit = [g for g in gold if g in record.answer]
+    hit = [g for g in gold if re.search(rf"\b{re.escape(g)}\b", record.answer)]
     return {
         "gold": len(gold),
         "hit": len(hit),
@@ -164,7 +169,33 @@ def summarize(rows: list[dict]) -> dict:
     }
 
 
-def print_report(summary: dict, rows: list[dict], fake: bool) -> None:
+def dod_checks(summary: dict, expected_total: int | None) -> list[tuple[str, bool]]:
+    """
+    DoD 5개 항목. print_report와 main()의 종료 코드가 같은 판정을 보도록
+    한 곳에서 계산한다 (예전엔 화면 출력만 5개를 보고 종료 코드는 2개만 봤다).
+
+    expected_total이 None이면 --limit/--tier로 부분 실행된 것이므로 "문항
+    예외 없이 응답"은 실제 실행한 개수 기준으로만 판정하고 라벨에 부분
+    실행임을 표시한다 — 20문항을 다 돌린 것처럼 보이면 안 된다.
+    """
+    s = summary
+    if expected_total is None:
+        count_label = f"{s['total']}문항(부분 실행) 예외 없이 응답"
+        count_ok = s["crashed"] == 0
+    else:
+        count_label = f"{expected_total}문항 예외 없이 응답"
+        count_ok = s["crashed"] == 0 and s["total"] == expected_total
+
+    return [
+        (count_label, count_ok),
+        ("dangling citation 0건", s["dangling_citations"] == 0),
+        ("대조군 기권", s["control_pass"] == s["control_total"]),
+        ("본문항 오기권 없음", not s["false_abstain"]),
+        ("시연 1분 내", s["latency_ms"]["max"] < 60_000),
+    ]
+
+
+def print_report(summary: dict, rows: list[dict], fake: bool, expected_total: int | None) -> None:
     if fake:
         print("\n!! 가짜 모드입니다. 답변 품질과 토큰은 무의미합니다.")
 
@@ -183,14 +214,7 @@ def print_report(summary: dict, rows: list[dict], fake: bool) -> None:
 
     print(f"\n{'─' * 52}")
     print("DoD 점검")
-    checks = [
-        ("20문항 예외 없이 응답", s["crashed"] == 0),
-        ("dangling citation 0건", s["dangling_citations"] == 0),
-        ("대조군 기권", s["control_pass"] == s["control_total"]),
-        ("본문항 오기권 없음", not s["false_abstain"]),
-        ("시연 1분 내", s["latency_ms"]["max"] < 60_000),
-    ]
-    for label, passed in checks:
+    for label, passed in dod_checks(summary, expected_total):
         print(f"  {'통과' if passed else '실패'}  {label}")
 
     if s["false_abstain"]:
@@ -251,10 +275,16 @@ def main() -> int:
     fake = "--fake" in sys.argv
     fake_llm = fake or "--fake-llm" in sys.argv
     cfg = load()
-    queries = select_queries(load_queries())
+    all_queries = load_queries()
+    queries = select_queries(all_queries)
     if not queries:
         print("실행할 질의가 없습니다.")
         return 1
+
+    # --limit/--tier로 부분 실행하면 "20문항 예외 없이 응답"을 판정할 수 없다.
+    # 이럴 때 expected_total을 None으로 둬서 dod_checks가 부분 실행임을 표시하게 한다.
+    is_partial = ("--limit" in sys.argv) or ("--tier" in sys.argv)
+    expected_total = None if is_partial else len(all_queries)
 
     pipeline = Pipeline(cfg, fake=fake, fake_llm=fake_llm)
     pattern = cfg.pipeline["generation"]["citation_pattern"]
@@ -262,10 +292,11 @@ def main() -> int:
     rows = run(pipeline, queries, pattern)
     summary = summarize(rows)
     out_dir = write_run(rows, summary, cfg)
-    print_report(summary, rows, pipeline.fake)
+    print_report(summary, rows, pipeline.fake, expected_total)
 
     print(f"\n{out_dir}/ 기록 완료")
-    return 0 if summary["crashed"] == 0 and summary["dangling_citations"] == 0 else 1
+    dod_pass = all(passed for _, passed in dod_checks(summary, expected_total))
+    return 0 if dod_pass else 1
 
 
 if __name__ == "__main__":

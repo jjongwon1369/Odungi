@@ -53,6 +53,10 @@ class Segment:
     source_type: SourceType
     lines: list[str] = field(default_factory=list)
     line_start: int = 0
+    # 대부분은 line_start + len(lines) - 1로 계산해도 맞지만(원문을 그대로
+    # 슬라이스하는 code/prose 경로), XML은 ET로 재직렬화해 줄 수가 원문과
+    # 달라지므로 실제 원문 종료 줄을 명시적으로 지정할 수 있게 한다.
+    _line_end_override: int | None = None
 
     @property
     def text(self) -> str:
@@ -60,6 +64,8 @@ class Segment:
 
     @property
     def line_end(self) -> int:
+        if self._line_end_override is not None:
+            return self._line_end_override
         return self.line_start + len(self.lines) - 1
 
 
@@ -155,6 +161,46 @@ def _serialize(el: "ET.Element") -> str:
     return ET.tostring(el, encoding="unicode").strip()
 
 
+def _xml_line_spans(text: str, n_elements: int) -> list[tuple[int, int]] | None:
+    """
+    ET.fromstring(text)가 만든 트리와 같은 문서를 expat으로 별도 파싱해,
+    여는 태그가 나오는 순서대로 (start_line, end_line)을 기록한다.
+
+    ET.fromstring이 실제로 쓰는 트리는 그대로 두고(내용 파싱은 이미 검증된
+    경로), 줄 번호만 이 함수로 따로 얻는다 — 커스텀 TreeBuilder로 트리 자체를
+    다시 만들면 CharacterDataHandler 등을 빠짐없이 재현해야 해서 식별자가
+    유실될 위험이 크다(실제로 한 번 그렇게 만들었다가 식별자 손실이 났었다).
+
+    root.iter()는 전위 순회라 여는 태그 순서와 같다. 두 파서가 만든 엘리먼트
+    개수가 다르면(네임스페이스 처리 차이 등) 상관관계를 보장할 수 없으므로
+    None을 돌려줘 호출부가 안전한 기본값(1, 전체 줄 수)으로 폴백하게 한다.
+    """
+    import xml.parsers.expat as expat
+
+    spans: list[list[int]] = []
+    stack: list[int] = []
+    parser = expat.ParserCreate()
+
+    def start(name, attrs):
+        spans.append([parser.CurrentLineNumber, parser.CurrentLineNumber])
+        stack.append(len(spans) - 1)
+
+    def end(name):
+        idx = stack.pop()
+        spans[idx][1] = parser.CurrentLineNumber
+
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
+    try:
+        parser.Parse(text, True)
+    except expat.ExpatError:
+        return None
+
+    if len(spans) != n_elements or stack:
+        return None
+    return [(s, e) for s, e in spans]
+
+
 def split_xml_segments(text: str, target: int, max_depth: int = 2) -> list[Segment]:
     """
     Data Model XML을 구조 단위로 쪼갠다.
@@ -165,18 +211,25 @@ def split_xml_segments(text: str, target: int, max_depth: int = 2) -> list[Segme
 
     텍스트는 ET로 재직렬화되므로 들여쓰기가 원본과 달라질 수 있으나,
     식별자와 속성값은 바이트 단위로 보존된다. verify_identifiers가 이를 검증한다.
+    line_start/line_end는 재직렬화된 block이 아니라 원문(text) 기준 줄 번호다
+    (expat의 CurrentLineNumber로 파싱 중에 기록) — 원본 위치 역추적용.
     """
     import xml.etree.ElementTree as ET
 
     root = None
+    is_wrapper = False
+    parsed_text = text
     try:
         root = ET.fromstring(text)
     except ET.ParseError:
         # 팀 코퍼스 documents.jsonl 의 text 는 "선택된 원문 발췌"라 루트가 없거나
         # 여러 최상위 엘리먼트가 이어진 형태일 수 있다 (processed/README.md).
-        # 가짜 루트로 감싸 다시 시도한다.
+        # 가짜 루트로 감싸 다시 시도한다. <_excerpt>는 줄바꿈 없이 붙이므로
+        # 원문의 줄 번호는 그대로 유지된다.
         try:
-            root = ET.fromstring(f"<_excerpt>{text}</_excerpt>")
+            parsed_text = f"<_excerpt>{text}</_excerpt>"
+            root = ET.fromstring(parsed_text)
+            is_wrapper = True
         except ET.ParseError:
             root = None
 
@@ -188,6 +241,13 @@ def split_xml_segments(text: str, target: int, max_depth: int = 2) -> list[Segme
         ]
 
     segments: list[Segment] = []
+    n_lines = len(text.splitlines()) or 1
+    elements = list(root.iter())
+    line_spans = _xml_line_spans(parsed_text, len(elements))
+    line_info = dict(zip((id(el) for el in elements), line_spans)) if line_spans else {}
+
+    def lines_of(el: "ET.Element") -> tuple[int, int]:
+        return line_info.get(id(el), (1, n_lines))
 
     def walk(el: "ET.Element", path: list[str], depth: int) -> None:
         block = _serialize(el)
@@ -197,19 +257,32 @@ def split_xml_segments(text: str, target: int, max_depth: int = 2) -> list[Segme
             for child in children:
                 walk(child, path + [_el_label(child)], depth + 1)
         else:
+            start_line, end_line = lines_of(el)
             segments.append(
-                Segment(path, SourceType.DATAMODEL_XML, block.splitlines(), 1)
+                Segment(
+                    path,
+                    SourceType.DATAMODEL_XML,
+                    block.splitlines(),
+                    start_line,
+                    _line_end_override=end_line,
+                )
             )
 
-    is_wrapper = root.tag == "_excerpt"
     root_label = _el_label(root)
     for child in root:
         path = [_el_label(child)] if is_wrapper else [root_label, _el_label(child)]
         walk(child, path, 1)
 
     if not segments:  # 자식이 없는 문서
+        start_line, end_line = lines_of(root)
         segments.append(
-            Segment([root_label], SourceType.DATAMODEL_XML, text.splitlines(), 1)
+            Segment(
+                [root_label],
+                SourceType.DATAMODEL_XML,
+                text.splitlines(),
+                start_line,
+                _line_end_override=end_line,
+            )
         )
     return segments
 
@@ -329,6 +402,7 @@ def chunk_document(doc: CorpusDoc, cfg: Config) -> list[Chunk]:
                     corpus_snapshot=doc.corpus_snapshot,
                     corpus_version=doc.corpus_version,
                     owner=doc.owner,
+                    upstream_document_id=doc.upstream_document_id,
                 )
             )
             seq += 1

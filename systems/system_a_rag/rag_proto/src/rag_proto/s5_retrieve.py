@@ -69,6 +69,44 @@ class RetrievalResult:
     candidates: list[Candidate]
 
 
+def where_matches(metadata: dict, where: dict | None) -> bool:
+    """
+    Chroma의 where 절과 같은 의미로 로컬 메타데이터를 평가한다.
+
+    BM25는 Chroma를 거치지 않으므로, 벡터 검색과 동일한 스코프 제약을
+    받으려면 이 함수로 별도 평가해야 한다. $and/$or/$eq/$ne/$in/$nin과
+    평문 등치({"key": "value"})를 지원한다. device_type처럼 리스트 값인
+    필드는 "값이 리스트 안에 있으면 매치"로 취급한다.
+    """
+    if not where:
+        return True
+    if "$and" in where:
+        return all(where_matches(metadata, cond) for cond in where["$and"])
+    if "$or" in where:
+        return any(where_matches(metadata, cond) for cond in where["$or"])
+
+    for key, cond in where.items():
+        value = metadata.get(key)
+        values = value if isinstance(value, list) else [value]
+        if isinstance(cond, dict):
+            op, operand = next(iter(cond.items()))
+            if op == "$eq":
+                ok = operand in values
+            elif op == "$ne":
+                ok = operand not in values
+            elif op == "$in":
+                ok = any(v in operand for v in values)
+            elif op == "$nin":
+                ok = not any(v in operand for v in values)
+            else:
+                raise ValueError(f"지원하지 않는 where 연산자: {op}")
+        else:
+            ok = cond in values
+        if not ok:
+            return False
+    return True
+
+
 class BM25Index:
     def __init__(self, chunks: list[dict]):
         from rank_bm25 import BM25Okapi
@@ -77,10 +115,19 @@ class BM25Index:
         self.ids = [c["chunk_id"] for c in chunks]
         self.bm25 = BM25Okapi([tokenize(c["text"]) for c in chunks])
 
-    def search(self, query: str, k: int) -> list[str]:
+    def search(self, query: str, k: int, where: dict | None = None) -> list[str]:
         scores = self.bm25.get_scores(tokenize(query))
-        ranked = sorted(range(len(scores)), key=lambda i: -scores[i])[:k]
-        return [self.ids[i] for i in ranked if scores[i] > 0]
+        order = sorted(range(len(scores)), key=lambda i: -scores[i])
+        results: list[str] = []
+        for i in order:
+            if scores[i] <= 0:
+                break
+            if not where_matches(self.chunks[i], where):
+                continue
+            results.append(self.ids[i])
+            if len(results) >= k:
+                break
+        return results
 
 
 def reciprocal_rank_fusion(rankings: list[list[str]], rrf_k: int = 60) -> list[str]:
@@ -161,7 +208,7 @@ class Retriever:
     def retrieve(self, query: str, where: dict | None = None) -> RetrievalResult:
         r = self.cfg.pipeline["retrieval"]
 
-        bm25_ids = self.bm25.search(query, r["bm25_k"])
+        bm25_ids = self.bm25.search(query, r["bm25_k"], where=where)
 
         qvec = self.embedder.encode([query])[0]
         vector_hits = vector_search(self.cfg, qvec, r["vector_k"], where=where)

@@ -345,8 +345,9 @@ def convert_from_team_corpus(cfg: Config) -> list[CorpusDoc]:
             cluster = cl_names.get(str(clusters[0]).lower(), str(clusters[0])) if len(clusters) == 1 else None
 
             # document_id 는 "doc:<sha256>" 형태. chunk_id 에 콜론이 들어가면
-            # 인용 표기 [chunk_id] 파싱이 깨질 수 있어 경로 기반 id 를 쓰고
-            # 원본 document_id 는 doc_id 가 아닌 곳에 보존하지 않는다(길이 문제).
+            # 인용 표기 [chunk_id] 파싱이 깨질 수 있어 경로 기반 id 를 chunk_id/doc_id
+            # 로 쓰되, 원본 document_id 와 source_spans 는 upstream_document_id /
+            # source_spans 필드에 그대로 보존해 원문 역추적이 가능하게 한다.
             docs.append(
                 CorpusDoc(
                     doc_id=make_doc_id(Path(source_path)),
@@ -362,6 +363,8 @@ def convert_from_team_corpus(cfg: Config) -> list[CorpusDoc]:
                     corpus_snapshot=rec.get("snapshot_id") or cfg.corpus_snapshot,
                     corpus_version=cfg.corpus_version,
                     owner=cfg.owner,
+                    upstream_document_id=rec.get("document_id"),
+                    source_spans=rec.get("source_spans"),
                 )
             )
 
