@@ -103,10 +103,10 @@ python3 systems/system_c_llm_wiki/validation/validate_wiki.py
 - [x] 컴파일러 + 검증 스크립트 — 커밋 `8cc6b86`
 - [x] 문서를 에이전트 탐색형으로 정정 — 커밋 `d3c633b`
 - [x] 엔드포인트 진단 (모델 / 토큰 4열 / 긴 입력 / 도구 호출 전부 통과)
-- [ ] 전체 34페이지 컴파일 — `gpt-5.6-luna` 로 `--force` 재컴파일 (진행 중)
+- [x] 전체 34페이지 컴파일 — `gpt-5.6-luna` 로 `--force` 재컴파일 완료 — 커밋 `686cc94`
+- [x] PR 생성 — [#6](https://github.com/jjongwon1369/Odungi/pull/6)
 - [ ] 상호링크 생성
 - [ ] 에이전트 루프 구현
-- [ ] PR 생성 (브랜치 `feature/llm-wiki-compiler` push 완료, PR 미생성)
 
 페이지가 어떤 모델로 만들어졌는지는 프론트매터 `compiled_by` 로 확인한다:
 `grep -h compiled_by systems/system_c_llm_wiki/wiki/*/*.md | sort | uniq -c`
