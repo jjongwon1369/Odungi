@@ -228,3 +228,13 @@ compiled_by: openai/gpt-5.6-luna
 - `mode-base-server.h`
 - `examples/all-clusters-app/all-clusters-common`
 - `CHIPProjectAppConfig.h`
+
+## 관련 페이지
+
+**베이스 클러스터**
+
+- [ModeBase](../base/modebase.md)
+
+**사용 기기**
+
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)

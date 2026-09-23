@@ -326,3 +326,9 @@ auto cluster = RelativeHumidityMeasurementCluster(endpointId, config);
 - `src/app/clusters/relative-humidity-measurement-server/CodegenIntegration.cpp`
 - `src/app/clusters/relative-humidity-measurement-server/README.md`
 - `zzz_generated/app-common/clusters/RelativeHumidityMeasurement/Metadata.h`
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)

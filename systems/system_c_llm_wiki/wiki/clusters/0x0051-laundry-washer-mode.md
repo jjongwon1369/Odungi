@@ -173,3 +173,12 @@ compiled_by: openai/gpt-5.6-luna
 |---:|---|---|---|
 | 0 | `NewModeTag` | `enum16` | `provisional` |
 
+## 관련 페이지
+
+**베이스 클러스터**
+
+- [ModeBase](../base/modebase.md)
+
+**사용 기기**
+
+- [Laundry Washer](../device-types/laundry-washer.md)

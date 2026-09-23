@@ -552,3 +552,11 @@ Attributes::OnMode::Id
 - `src/app/clusters/mode-base-server/CodegenIntegration.cpp`
 - `src/app/clusters/mode-base-server/MigrateModeBaseServerStorage.h`
 - `src/app/clusters/mode-base-server/MigrateModeBaseServerStorage.cpp`
+
+## 관련 페이지
+
+**파생 클러스터**
+
+- [Laundry Washer Mode `0x0051`](../clusters/0x0051-laundry-washer-mode.md)
+- [Refrigerator And Temperature Controlled Cabinet Mode `0x0052`](../clusters/0x0052-refrigerator-and-temperature-controlled-cabinet-mode.md)
+- [Thermostat Mode `0x0063`](../clusters/0x0063-thermostat-mode.md)

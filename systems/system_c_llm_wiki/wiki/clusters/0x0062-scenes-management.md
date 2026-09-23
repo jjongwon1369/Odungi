@@ -903,3 +903,9 @@ static constexpr size_t kScenesMaxTransitionTime = 60'000'000u;
 - `src/app/clusters/scenes-server/Constants.h`
 - `src/app/clusters/scenes-server/ScenesIntegrationDelegate.h`
 - `src/app/clusters/scenes-server/scenes-server.h`
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)

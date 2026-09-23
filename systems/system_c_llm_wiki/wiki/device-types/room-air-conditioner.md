@@ -76,3 +76,26 @@ compiled_by: openai/gpt-5.6-luna
 | Attribute Code | Attribute 이름 | Conformance |
 |---|---|---|
 | `0x0001` | `KeypadLockout` | `optionalConform` |
+
+## 관련 페이지
+
+**직접 클러스터**
+
+- [Identify `0x0003`](../clusters/0x0003-identify.md)
+- [Groups `0x0004`](../clusters/0x0004-groups.md)
+- [On/Off `0x0006`](../clusters/0x0006-on-off.md)
+- [Scenes Management `0x0062`](../clusters/0x0062-scenes-management.md)
+- [Thermostat Mode `0x0063`](../clusters/0x0063-thermostat-mode.md)
+- [HEPA Filter Monitoring `0x0071`](../clusters/0x0071-hepa-filter-monitoring.md)
+- [Thermostat `0x0201`](../clusters/0x0201-thermostat.md)
+- [Fan Control `0x0202`](../clusters/0x0202-fan-control.md)
+- [Thermostat User Interface Configuration `0x0204`](../clusters/0x0204-thermostat-user-interface-configuration.md)
+- [Temperature Measurement `0x0402`](../clusters/0x0402-temperature-measurement.md)
+- [Relative Humidity Measurement `0x0405`](../clusters/0x0405-relative-humidity-measurement.md)
+
+**베이스 클러스터**
+
+- [Descriptor `0x001D`](../clusters/0x001D-descriptor.md)
+- [Binding `0x001E`](../clusters/0x001E-binding.md)
+- [Fixed Label `0x0040`](../clusters/0x0040-fixed-label.md)
+- [User Label `0x0041`](../clusters/0x0041-user-label.md)

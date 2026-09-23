@@ -513,3 +513,9 @@ chip::app::Clusters::FanControl::SetDefaultDelegate(endpoint, &myDelegate);
 - `src/app/clusters/fan-control-server/CodegenIntegration.h`
 - `src/app/clusters/fan-control-server/CodegenIntegration.cpp`
 - `src/app/clusters/fan-control-server/fan-control-server.h`
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)

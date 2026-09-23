@@ -312,3 +312,10 @@ ChangeIndication::kMetadataEntry
 - `src/app/clusters/resource-monitoring-server/MigrateResourceMonitoringServerStorage.cpp`
 - `zzz_generated/app-common/clusters/HepaFilterMonitoring/Metadata.h`
 - `zzz_generated/app-common/clusters/ActivatedCarbonFilterMonitoring/Metadata.h`
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Refrigerator](../device-types/refrigerator.md)
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)

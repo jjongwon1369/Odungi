@@ -42,3 +42,9 @@ compiled_by: openai/gpt-5.6-luna
 - 타입: `list`
 - Entry 타입: `LabelStruct`
 - 필수: 예
+
+## 관련 페이지
+
+**파생 클러스터**
+
+- [Fixed Label `0x0040`](../clusters/0x0040-fixed-label.md)

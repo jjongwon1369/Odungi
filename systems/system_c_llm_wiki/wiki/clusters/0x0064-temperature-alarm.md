@@ -197,3 +197,9 @@ compiled_by: openai/gpt-5.6-luna
     MinorUnderTemperatureThreshold
   ) - 1
   ```
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Temperature Controlled Cabinet](../device-types/temperature-controlled-cabinet.md)

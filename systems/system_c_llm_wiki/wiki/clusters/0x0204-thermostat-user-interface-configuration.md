@@ -296,3 +296,9 @@ endpoint에서 클러스터를 찾지 못하면 `Protocols::InteractionModel::St
 - `src/app/zap-templates/zcl/data-model/chip/thermostat-user-interface-configuration-cluster.xml`
 - `data_model/1.7/clusters/ThermostatUserInterfaceConfiguration.xml`
 - [클러스터 개발 가이드](../../../../docs/guides/writing_clusters.md)
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)

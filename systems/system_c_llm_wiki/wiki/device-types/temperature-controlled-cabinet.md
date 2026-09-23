@@ -82,3 +82,19 @@ compiled_by: openai/gpt-5.6-luna
 
 - Side: `server`
 - 선택 사항
+
+## 관련 페이지
+
+**직접 클러스터**
+
+- [Refrigerator And Temperature Controlled Cabinet Mode `0x0052`](../clusters/0x0052-refrigerator-and-temperature-controlled-cabinet-mode.md)
+- [Temperature Control `0x0056`](../clusters/0x0056-temperature-control.md)
+- [Temperature Alarm `0x0064`](../clusters/0x0064-temperature-alarm.md)
+- [Temperature Measurement `0x0402`](../clusters/0x0402-temperature-measurement.md)
+
+**베이스 클러스터**
+
+- [Descriptor `0x001D`](../clusters/0x001D-descriptor.md)
+- [Binding `0x001E`](../clusters/0x001E-binding.md)
+- [Fixed Label `0x0040`](../clusters/0x0040-fixed-label.md)
+- [User Label `0x0041`](../clusters/0x0041-user-label.md)

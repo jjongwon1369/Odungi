@@ -445,3 +445,9 @@ struct GroupsClusterContext
 등록 시 사용되는 클러스터 ID는 `Groups::Id`입니다.
 
 ## 관련 문서
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)

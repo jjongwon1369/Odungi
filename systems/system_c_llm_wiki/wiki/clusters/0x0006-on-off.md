@@ -457,3 +457,10 @@ virtual DataModel::ActionReturnStatus TriggerEffect(
 - `src/app/clusters/on-off-server/OnOffLightingCluster.h`
 - `src/app/clusters/on-off-server/OnOffLightingCluster.cpp`
 - `src/app/clusters/on-off-server/OnOffEffectDelegate.h`
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Laundry Washer](../device-types/laundry-washer.md)
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)

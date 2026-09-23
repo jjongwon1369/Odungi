@@ -50,3 +50,19 @@ compiled_by: openai/gpt-5.6-luna
 ### `Activated Carbon Filter Monitoring` 적용 조건
 
 `Activated Carbon Filter Monitoring` 클러스터는 revision `3` 이상에서 optional conform입니다.
+
+## 관련 페이지
+
+**직접 클러스터**
+
+- [Identify `0x0003`](../clusters/0x0003-identify.md)
+- [Refrigerator And Temperature Controlled Cabinet Mode `0x0052`](../clusters/0x0052-refrigerator-and-temperature-controlled-cabinet-mode.md)
+- [Refrigerator Alarm `0x0057`](../clusters/0x0057-refrigerator-alarm.md)
+- [HEPA Filter Monitoring `0x0072`](../clusters/0x0071-hepa-filter-monitoring.md)
+
+**베이스 클러스터**
+
+- [Descriptor `0x001D`](../clusters/0x001D-descriptor.md)
+- [Binding `0x001E`](../clusters/0x001E-binding.md)
+- [Fixed Label `0x0040`](../clusters/0x0040-fixed-label.md)
+- [User Label `0x0041`](../clusters/0x0041-user-label.md)

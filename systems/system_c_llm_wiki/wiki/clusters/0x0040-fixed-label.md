@@ -158,3 +158,16 @@ private:
   - `CodegenClusterIntegration::UnregisterServer`를 호출합니다.
 - `MatterFixedLabelPluginServerInitCallback()`
   - 빈 구현입니다.
+
+## 관련 페이지
+
+**베이스 클러스터**
+
+- [Label](../base/label.md)
+
+**사용 기기**
+
+- [Laundry Washer](../device-types/laundry-washer.md)
+- [Refrigerator](../device-types/refrigerator.md)
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)
+- [Temperature Controlled Cabinet](../device-types/temperature-controlled-cabinet.md)

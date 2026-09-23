@@ -636,3 +636,9 @@ optional attribute 활성화 여부는 `BaseIntegrationDelegate::GetOptionalAttr
 - `src/app/clusters/thermostat-server/ThermostatClusterAtomic.h`
 - `src/app/clusters/thermostat-server/CodegenIntegration.h`
 - `src/app/clusters/thermostat-server/AttributeAccessorShim.h`
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)

@@ -359,3 +359,10 @@ void SetDelegate(
 ```
 
 ### 관련 문서
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Laundry Washer](../device-types/laundry-washer.md)
+- [Temperature Controlled Cabinet](../device-types/temperature-controlled-cabinet.md)

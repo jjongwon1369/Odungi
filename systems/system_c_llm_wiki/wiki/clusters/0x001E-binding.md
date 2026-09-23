@@ -395,3 +395,12 @@ CHIP_CONFIG_MAX_BINDING_ENTRIES_PER_FABRIC * CHIP_CONFIG_MAX_FABRICS
 ```
 
 기존 값은 기본적으로 `src/app/util/config.h`에 정의되어 있었으며, 변경된 값은 `src/lib/core/CHIPConfig.h`에 정의되어 있다.
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Laundry Washer](../device-types/laundry-washer.md)
+- [Refrigerator](../device-types/refrigerator.md)
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)
+- [Temperature Controlled Cabinet](../device-types/temperature-controlled-cabinet.md)

@@ -397,3 +397,11 @@ static Identify gIdentify1 = {
 - `src/app/clusters/identify-server/CodegenIntegration.cpp`
 - `src/app/clusters/identify-server/identify-server.h`
 - `src/app/clusters/identify-server/README.md`
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Laundry Washer](../device-types/laundry-washer.md)
+- [Refrigerator](../device-types/refrigerator.md)
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)

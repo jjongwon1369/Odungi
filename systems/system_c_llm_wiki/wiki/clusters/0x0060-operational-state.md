@@ -514,3 +514,9 @@ ZAP accessor function은 제공되지 않으므로 attribute에는 `Instance`의
 - `src/app/clusters/operational-state-server/OvenCavityOperationalStateCluster.cpp`
 - `src/app/clusters/operational-state-server/operational-state-cluster-objects.h`
 - `src/app/clusters/operational-state-server/operational-state-server.h`
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Laundry Washer](../device-types/laundry-washer.md)

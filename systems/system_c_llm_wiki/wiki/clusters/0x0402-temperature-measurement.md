@@ -244,3 +244,10 @@ else
 - `src/app/clusters/temperature-measurement-server/CodegenIntegration.h`
 - `src/app/clusters/temperature-measurement-server/CodegenIntegration.cpp`
 - `src/app/clusters/temperature-measurement-server/README.md`
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)
+- [Temperature Controlled Cabinet](../device-types/temperature-controlled-cabinet.md)

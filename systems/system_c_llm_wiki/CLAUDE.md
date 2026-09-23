@@ -105,7 +105,7 @@ python3 systems/system_c_llm_wiki/validation/validate_wiki.py
 - [x] 엔드포인트 진단 (모델 / 토큰 4열 / 긴 입력 / 도구 호출 전부 통과)
 - [x] 전체 34페이지 컴파일 — `gpt-5.6-luna` 로 `--force` 재컴파일 완료 — 커밋 `686cc94`
 - [x] PR 생성 — [#6](https://github.com/jjongwon1369/Odungi/pull/6)
-- [ ] 상호링크 생성
+- [x] 상호링크 생성 — `linker/crosslink_wiki.py` (28개 페이지)
 - [ ] 에이전트 루프 구현
 
 페이지가 어떤 모델로 만들어졌는지는 프론트매터 `compiled_by` 로 확인한다:

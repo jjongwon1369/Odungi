@@ -323,3 +323,9 @@ mNumberOfRinses   = LaundryWasherControls::NumberOfRinsesEnum::kNone;
   - 최대 `kMaxSupportedRinsesLength`개 항목을 읽습니다.
 - `CHIP_ERROR_PROVIDER_LIST_EXHAUSTED`가 반환되면 목록의 끝으로 처리하고 성공합니다.
 - 그 외 오류는 반환됩니다.
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Laundry Washer](../device-types/laundry-washer.md)

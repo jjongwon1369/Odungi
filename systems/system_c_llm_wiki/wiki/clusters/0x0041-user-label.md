@@ -331,3 +331,12 @@ CodegenClusterIntegration::UnregisterServer(
 ```cpp
 void MatterUserLabelPluginServerInitCallback() {}
 ```
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Laundry Washer](../device-types/laundry-washer.md)
+- [Refrigerator](../device-types/refrigerator.md)
+- [Room Air Conditioner](../device-types/room-air-conditioner.md)
+- [Temperature Controlled Cabinet](../device-types/temperature-controlled-cabinet.md)

@@ -333,3 +333,9 @@ mContext->interactionContext.eventsGenerator.GenerateEvent(
 - `src/app/clusters/refrigerator-alarm-server/RefrigeratorAlarmCluster.cpp`
 - `src/app/zap-templates/zcl/data-model/chip/refrigerator-alarm.xml`
 - `data_model/1.7/clusters/RefrigeratorAlarm.xml`
+
+## 관련 페이지
+
+**사용 기기**
+
+- [Refrigerator](../device-types/refrigerator.md)
