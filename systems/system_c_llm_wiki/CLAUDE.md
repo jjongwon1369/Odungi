@@ -55,6 +55,8 @@ systems/system_c_llm_wiki/
 ├── CLAUDE.md                   이 파일
 ├── compiler/compile_wiki.py    위키 컴파일러
 ├── validation/validate_wiki.py 출처·식별자 보존·토큰 수 검증
+├── linker/crosslink_wiki.py    상호링크 생성기
+├── agent/run_agent.py          에이전트 루프 (질의응답)
 └── wiki/                       컴파일 산출물 (손으로 수정하지 않는다)
     ├── base/  clusters/  device-types/  examples/  guides/  misc/
 ```
@@ -76,11 +78,26 @@ WIKI_COMPILER_PROVIDER=openai WIKI_COMPILER_MODEL=gpt-5.6-luna \
 
 # 검증
 python3 systems/system_c_llm_wiki/validation/validate_wiki.py
+
+# 에이전트 질의 (verbose)
+python3 systems/system_c_llm_wiki/agent/run_agent.py \
+    --query "On/Off 클러스터의 OFFONLY feature 제약은?" \
+    --verbose
+
+# 에이전트 질의 + 결과 파일 저장
+python3 systems/system_c_llm_wiki/agent/run_agent.py \
+    --query "..." --output result.json
+
+# 최대 턴 제한
+python3 systems/system_c_llm_wiki/agent/run_agent.py \
+    --query "..." --verbose --max-turns 5
 ```
 
 컴파일러 옵션: `--dry-run` / `--only <key>` / `--limit N` / `--force`(기생성 페이지도 재생성).
 기본 동작은 이미 만들어진 페이지 건너뛰기라, 중단 후 재실행하면 못 만든 것만 이어서 만든다.
 환경변수 `WIKI_COMPILER_TIMEOUT`(초, 기본 600)으로 요청 타임아웃 조절.
+
+에이전트 환경변수: `WIKI_AGENT_MODEL`(기본 `WIKI_COMPILER_MODEL` → `gpt-5.6-luna`), `WIKI_AGENT_TIMEOUT`(초, 기본 120).
 
 ## 환경
 
@@ -106,7 +123,7 @@ python3 systems/system_c_llm_wiki/validation/validate_wiki.py
 - [x] 전체 34페이지 컴파일 — `gpt-5.6-luna` 로 `--force` 재컴파일 완료 — 커밋 `686cc94`
 - [x] PR 생성 — [#6](https://github.com/jjongwon1369/Odungi/pull/6)
 - [x] 상호링크 생성 — `linker/crosslink_wiki.py` (28개 페이지)
-- [ ] 에이전트 루프 구현
+- [x] 에이전트 루프 구현 — `agent/run_agent.py`
 
 페이지가 어떤 모델로 만들어졌는지는 프론트매터 `compiled_by` 로 확인한다:
 `grep -h compiled_by systems/system_c_llm_wiki/wiki/*/*.md | sort | uniq -c`
