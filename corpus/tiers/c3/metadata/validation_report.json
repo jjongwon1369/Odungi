@@ -1,0 +1,162 @@
+{
+  "checks": {
+    "accepted_coverage_gaps": {
+      "details": {
+        "count": 21,
+        "coverage_ids": [
+          "C005",
+          "C007",
+          "C008",
+          "C010",
+          "C011",
+          "C012",
+          "C016",
+          "C021",
+          "C023",
+          "C024",
+          "C026",
+          "C028",
+          "C029",
+          "C031",
+          "C033",
+          "C034",
+          "C038",
+          "C039",
+          "C041",
+          "C043",
+          "C044"
+        ],
+        "documentation": "20 repeated rows: standalone Markdown absent in nine scoped component directories",
+        "temperature_alarm": "specification only; no concrete SDK/implementation/IDL"
+      },
+      "message": "Finalized gaps retained; no missing source files fabricated",
+      "status": "warning"
+    },
+    "coverage_matrix_consistency": {
+      "details": {
+        "coverage_rows": 91,
+        "device_cluster_relations": 42,
+        "excluded_rows": 32,
+        "included_rows": 59,
+        "unique_clusters": 23
+      },
+      "message": "coverage matrix consistency verified",
+      "status": "pass"
+    },
+    "deterministic_rebuild": {
+      "details": {
+        "artifact_set_hash": "5ae12a249fe3dd58a0a5cb2829bc4f24e36eb9670321d491e7e374f4cbcbada8",
+        "builds": 2,
+        "compared_files": 288,
+        "document_ids": "identical",
+        "normalized_hashes": "identical",
+        "raw_sha256": "identical",
+        "relations": "identical"
+      },
+      "message": "deterministic rebuild verified",
+      "status": "pass"
+    },
+    "duplicate_document_id": {
+      "details": 282,
+      "message": "duplicate document id verified",
+      "status": "pass"
+    },
+    "duplicate_normalized_document_id": {
+      "details": 282,
+      "message": "duplicate normalized document id verified",
+      "status": "pass"
+    },
+    "duplicate_raw_hash": {
+      "details": {
+        "duplicate_groups": 0
+      },
+      "message": "duplicate raw hash verified",
+      "status": "pass"
+    },
+    "duplicate_relation_id": {
+      "details": 764,
+      "message": "duplicate relation id verified",
+      "status": "pass"
+    },
+    "identifier_preservation": {
+      "details": {
+        "comparison": "selected original spans vs normalized lexical inventory",
+        "identifier_occurrences": 191531,
+        "semantic_conformance_evaluated": false
+      },
+      "message": "identifier preservation verified",
+      "status": "pass"
+    },
+    "manifest_raw_consistency_and_hash_validity": {
+      "details": {
+        "files": 282,
+        "missing": [],
+        "unexpected": []
+      },
+      "message": "manifest raw consistency and hash validity verified",
+      "status": "pass"
+    },
+    "relation_target_validity": {
+      "details": {
+        "entities": 342,
+        "relations": 764
+      },
+      "message": "relation target validity verified",
+      "status": "pass"
+    },
+    "required_metadata": {
+      "details": {
+        "manifest_rows": 282
+      },
+      "message": "required metadata verified",
+      "status": "pass"
+    },
+    "revision_semantics": {
+      "details": {
+        "baseline": "development data_model/1.7",
+        "semantic_consistency": "not evaluated"
+      },
+      "message": "Source-specific revisions preserved; numerical differences are not automatically errors",
+      "status": "warning"
+    },
+    "scope_file_existence": {
+      "details": 282,
+      "message": "scope file existence verified",
+      "status": "pass"
+    },
+    "source_commit_match": {
+      "details": null,
+      "message": "source commit match verified",
+      "status": "pass"
+    },
+    "source_revision_declarations": {
+      "details": {
+        "policy": "compare each source to its own declared revision, not each other",
+        "verified_source_declarations": 45
+      },
+      "message": "source revision declarations verified",
+      "status": "pass"
+    },
+    "source_span_validity": {
+      "details": {
+        "documents": 282,
+        "spans": 755
+      },
+      "message": "source span validity verified",
+      "status": "pass"
+    },
+    "token_measurement": {
+      "details": {
+        "token_count": null
+      },
+      "message": "Token count pending tokenizer/model choice",
+      "status": "warning"
+    }
+  },
+  "snapshot_id": "corpus-c3:2f00a8077e434eb6657fb661112012abeceba70c0d1e0633e73f6b7b9c7afb8e",
+  "status": "warning",
+  "summary": {
+    "pass": 14,
+    "warning": 3
+  }
+}

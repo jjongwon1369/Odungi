@@ -9,8 +9,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from corpus_utils import (CorpusError, PROJECT_ROOT, Repository, Selection,
-                          csv_bytes, digest, document_id, writable_path)
+                          csv_bytes, digest, document_id, relation_semantic_key,
+                          writable_path)
+from compare_tiers import spans_preserved
 from extract_corpus import Build
+from generate_scope import build_draft, resolve_device_types
 from normalize_corpus import normalize, xml_tree
 from validate_corpus import rebuild_check, unique_ids, validate, verify_hash
 
@@ -50,6 +53,17 @@ class PipelineTests(unittest.TestCase):
     def test_hash_mismatch(self):
         with self.assertRaisesRegex(CorpusError, 'Hash mismatch'):
             verify_hash(b'changed', digest(b'original'), 'fixture')
+
+    def test_tier_span_preservation_allows_merged_superset(self):
+        lower = [
+            {'source_path': 'source.xml', 'char_start': 0, 'char_end': 10},
+            {'source_path': 'source.xml', 'char_start': 12, 'char_end': 20},
+        ]
+        upper = [{'source_path': 'source.xml', 'char_start': 0, 'char_end': 25}]
+        self.assertTrue(spans_preserved(lower, upper))
+        self.assertFalse(spans_preserved(lower, [
+            {'source_path': 'source.xml', 'char_start': 0, 'char_end': 19},
+        ]))
 
     def test_shared_implementation_one_file_many_devices(self):
         path = 'src/app/clusters/mode-base-server/ModeBaseCluster.cpp'
@@ -130,6 +144,38 @@ class PipelineTests(unittest.TestCase):
                                   if d['entity_kind'] == 'cluster' and d['entity_id'] == f'0x{cid:04X}'}, {cluster[key]})
         requirements = {r['requirement'] for r in self.build.relations}
         self.assertTrue(requirements <= {None, 'mandatory', 'optional', 'conditional', 'provisional', 'disallowed', 'not_applicable'})
+
+    def test_relation_semantic_key_is_canonical_and_ignores_tier_metadata(self):
+        relation = copy.deepcopy(self.build.relations[0])
+        key = relation_semantic_key(relation)
+        changed = copy.deepcopy(relation)
+        changed['relation_id'] = 'rel:changed'
+        changed['via_entities'] = [{'kind': 'cluster', 'id': '0xFFFF'}]
+        self.assertEqual(key, relation_semantic_key(changed))
+        changed['requirement'] = 'optional' if relation.get('requirement') != 'optional' else 'mandatory'
+        self.assertNotEqual(key, relation_semantic_key(changed))
+
+    def test_tier_declarations_are_nested_and_generate_review_only_drafts(self):
+        c3 = resolve_device_types('c3')
+        c6 = resolve_device_types('c6')
+        c12 = resolve_device_types('c12')
+        self.assertEqual(len(c3), 4)
+        self.assertEqual(len(c6), 7)
+        self.assertEqual(len(c12), 14)
+        self.assertLess(set(c3), set(c6))
+        self.assertLess(set(c6), set(c12))
+        draft = build_draft(self.repo, 'c3')
+        self.assertTrue(draft['draft'])
+        self.assertFalse(draft['extraction_authorized'])
+        self.assertEqual(draft['repository']['commit_sha'], self.repo.head)
+        self.assertEqual(draft['counts']['product_families'], 3)
+        self.assertEqual({item['id'] for item in draft['products']},
+                         {'0x0070', '0x0071', '0x0072', '0x0073'})
+        existing = {item['id']: item for item in self.selection.scope['products']}
+        for product in draft['products']:
+            baseline = existing[product['id']]
+            for field in ['name', 'definition_path', 'direct_cluster_ids', 'base_cluster_ids', 'product_role']:
+                self.assertEqual(product[field], baseline[field], (product['id'], field))
 
 
 if __name__ == '__main__':

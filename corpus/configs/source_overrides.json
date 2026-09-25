@@ -1,0 +1,82 @@
+{
+  "device_examples": {
+    "45": "examples/chef/devices/rootnode_airpurifier_73a6fe2651.matter",
+    "116": "examples/chef/devices/rootnode_roboticvacuumcleaner_1807ff0c49.matter",
+    "117": "examples/chef/devices/rootnode_dishwasher_cc105034fe.matter",
+    "119": "examples/chef/devices/rootnode_cooktop_cooksurface_d3c174cc88.matter",
+    "120": "examples/chef/devices/rootnode_cooktop_cooksurface_d3c174cc88.matter",
+    "121": "examples/chef/devices/rootnode_microwaveoven_37420684d3.matter",
+    "122": "examples/chef/devices/rootnode_extractorhood_0359bf807d.matter",
+    "124": "examples/chef/devices/rootnode_laundrydryer_01796fe396.matter",
+    "125": "unverified",
+    "1295": "examples/chef/devices/rootnode_waterheater_21bd13d651.matter"
+  },
+  "new_cluster_sources": {
+    "0x004A": {
+      "documentation_path": "unverified",
+      "implementation_path": "src/app/clusters/laundry-dryer-controls-server/LaundryDryerControlsCluster.cpp",
+      "implementation_scope": "cluster_shared"
+    },
+    "0x0054": {
+      "documentation_path": "src/app/clusters/mode-base-server/README.md",
+      "implementation_path": "src/app/clusters/mode-base-server/ModeBaseCluster.cpp",
+      "implementation_scope": "framework_shared"
+    },
+    "0x0055": {
+      "documentation_path": "src/app/clusters/mode-base-server/README.md",
+      "implementation_path": "src/app/clusters/mode-base-server/ModeBaseCluster.cpp",
+      "implementation_scope": "framework_shared"
+    },
+    "0x0059": {
+      "documentation_path": "src/app/clusters/mode-base-server/README.md",
+      "implementation_path": "src/app/clusters/mode-base-server/ModeBaseCluster.cpp",
+      "implementation_scope": "framework_shared"
+    },
+    "0x005D": {
+      "documentation_path": "unverified",
+      "implementation_path": "src/app/clusters/dishwasher-alarm-server/DishwasherAlarmCluster.cpp",
+      "implementation_scope": "cluster_shared"
+    },
+    "0x005E": {
+      "documentation_path": "src/app/clusters/mode-base-server/README.md",
+      "implementation_path": "src/app/clusters/mode-base-server/ModeBaseCluster.cpp",
+      "implementation_scope": "framework_shared"
+    },
+    "0x005F": {
+      "documentation_path": "unverified",
+      "implementation_path": "src/app/clusters/microwave-oven-control-server/MicrowaveOvenControlCluster.cpp",
+      "implementation_scope": "cluster_shared"
+    },
+    "0x0061": {
+      "documentation_path": "src/app/clusters/operational-state-server/README.md",
+      "implementation_path": "src/app/clusters/operational-state-server/RvcOperationalStateCluster.cpp",
+      "implementation_scope": "framework_shared"
+    },
+    "0x0079": {
+      "documentation_path": "src/app/clusters/resource-monitoring-server/README.md",
+      "implementation_path": "src/app/clusters/resource-monitoring-server/ResourceMonitoringCluster.cpp",
+      "implementation_scope": "framework_shared"
+    },
+    "0x0094": {
+      "documentation_path": "unverified",
+      "implementation_path": "src/app/clusters/water-heater-management-server/WaterHeaterManagementCluster.cpp",
+      "implementation_scope": "cluster_shared"
+    },
+    "0x009E": {
+      "documentation_path": "src/app/clusters/mode-base-server/README.md",
+      "implementation_path": "src/app/clusters/mode-base-server/ModeBaseCluster.cpp",
+      "implementation_scope": "framework_shared"
+    },
+    "0x0150": {
+      "documentation_path": "src/app/clusters/service-area-server/README.md",
+      "implementation_path": "src/app/clusters/service-area-server/ServiceAreaCluster.cpp",
+      "implementation_scope": "cluster_shared"
+    },
+    "0x0205": {
+      "documentation_path": "unverified",
+      "implementation_path": "src/app/clusters/humidistat-server/HumidistatCluster.cpp",
+      "implementation_scope": "cluster_shared"
+    }
+  },
+  "schema_version": "1.0"
+}

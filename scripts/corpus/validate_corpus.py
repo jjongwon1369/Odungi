@@ -230,9 +230,15 @@ def validate(selection, output, snapshot, rebuild=True, write_report=True):
             require({r['coverage_id'] for r in selection.included} ==
                     {c for r in relations for c in r.get('coverage_ids', [])}, 'Coverage relation rows differ')
             required = [r for r in relations if r['relation_type'] == 'requires_cluster']
-            require(len(required) == 42, 'Expected 42 device-cluster relations')
+            expected_required = sum(
+                len(product['direct_cluster_ids']) + len(product['base_cluster_ids'])
+                for product in selection.products.values()
+            )
+            require(len(required) == expected_required,
+                    f'Expected {expected_required} device-cluster relations')
             ids = {r['target_entity']['id'] for r in required}
-            require(ids == {f'0x{c:04X}' for c in selection.clusters}, 'Expected 23 covered clusters')
+            require(ids == {f'0x{c:04X}' for c in selection.clusters},
+                    f'Expected {len(selection.clusters)} covered clusters')
             # All metadata and relations are regenerated from fixed inputs. This
             # checks correct targets/conditions, not merely referential integrity.
             from extract_corpus import Build
@@ -245,7 +251,8 @@ def validate(selection, output, snapshot, rebuild=True, write_report=True):
             require(entities == expected.entities, 'Entity registry differs from scope')
             require(load_json(metadata / 'statistics.json') == expected.statistics, 'Statistics differ')
             require(actual_snapshot == expected.snapshot, 'Snapshot metadata differs')
-            return {'unique_clusters': len(ids), 'device_cluster_relations': 42, 'coverage_rows': len(selection.coverage),
+            return {'unique_clusters': len(ids), 'device_cluster_relations': expected_required,
+                    'coverage_rows': len(selection.coverage),
                     'included_rows': len(selection.included), 'excluded_rows': len(selection.coverage) - len(selection.included)}
 
         check('coverage_matrix_consistency', coverage_check)

@@ -1,6 +1,7 @@
 """Build and validate the Corpus from CONNECTEDHOMEIP_PATH."""
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from pathlib import Path
@@ -12,11 +13,7 @@ from corpus_utils import (CorpusError, PINNED_COMMIT, PROJECT_ROOT, Repository,
 
 
 ENVIRONMENT_VARIABLE = "CONNECTEDHOMEIP_PATH"
-SCOPE = PROJECT_ROOT / "corpus/metadata/scope.json"
-OUTPUT = PROJECT_ROOT / "corpus/raw"
-SNAPSHOT = PROJECT_ROOT / "corpus/metadata/snapshot.json"
-STATISTICS = PROJECT_ROOT / "corpus/metadata/statistics.json"
-VALIDATION_REPORT = PROJECT_ROOT / "corpus/metadata/validation_report.json"
+LEGACY_CORPUS_ROOT = PROJECT_ROOT / "corpus"
 EXPECTED = {
     "unique_file_count": 282,
     "normalized_document_count": 282,
@@ -35,12 +32,27 @@ def source_path_from_environment() -> Path:
     return path
 
 
-def verify_generated_results() -> dict[str, int]:
-    statistics = load_json(STATISTICS)
-    report = load_json(VALIDATION_REPORT)
-    for key, expected in EXPECTED.items():
-        require(statistics.get(key) == expected,
-                f"Unexpected {key}: expected {expected}, found {statistics.get(key)!r}")
+def corpus_paths(root: Path) -> dict[str, Path]:
+    root = root.resolve()
+    legacy = root == LEGACY_CORPUS_ROOT.resolve()
+    metadata = root / "metadata"
+    return {
+        "root": root,
+        "scope": metadata / "scope.json" if legacy else root / "scope.json",
+        "output": root / "raw",
+        "snapshot": metadata / "snapshot.json",
+        "statistics": metadata / "statistics.json",
+        "validation_report": metadata / "validation_report.json",
+    }
+
+
+def verify_generated_results(paths: dict[str, Path], expect_c3_baseline: bool) -> dict[str, int]:
+    statistics = load_json(paths["statistics"])
+    report = load_json(paths["validation_report"])
+    if expect_c3_baseline:
+        for key, expected in EXPECTED.items():
+            require(statistics.get(key) == expected,
+                    f"Unexpected {key}: expected {expected}, found {statistics.get(key)!r}")
     summary = report.get("summary")
     require(isinstance(summary, dict), "Validation report has no summary")
     failures = summary.get("fail", 0)
@@ -56,8 +68,20 @@ def verify_generated_results() -> dict[str, int]:
     }
 
 
+def parser() -> argparse.ArgumentParser:
+    value = argparse.ArgumentParser(description=__doc__)
+    value.add_argument("--corpus-root", type=Path, default=LEGACY_CORPUS_ROOT,
+                       help="Tier root containing scope.json and coverage_matrix.csv")
+    value.add_argument("--expect-c3-baseline", action="store_true",
+                       help="Enforce the preserved C3 regression counts")
+    return value
+
+
 def main() -> int:
+    args = parser().parse_args()
     try:
+        paths = corpus_paths(args.corpus_root)
+        expect_c3 = args.expect_c3_baseline or paths["root"] == LEGACY_CORPUS_ROOT.resolve()
         print(f"[1/4] Reading {ENVIRONMENT_VARIABLE}", flush=True)
         source = source_path_from_environment()
 
@@ -65,8 +89,8 @@ def main() -> int:
         repository = Repository(source)
         require(repository.head == PINNED_COMMIT, "Connectedhomeip HEAD verification failed")
 
-        print(f"[3/4] Loading scope from {SCOPE}", flush=True)
-        scope = load_json(SCOPE)
+        print(f"[3/4] Loading scope from {paths['scope']}", flush=True)
+        scope = load_json(paths["scope"])
         require(scope.get("repository", {}).get("commit_sha") == PINNED_COMMIT,
                 "scope.json does not reference the pinned connectedhomeip commit")
 
@@ -75,14 +99,14 @@ def main() -> int:
             sys.executable,
             str(Path(__file__).with_name("extract_corpus.py")),
             "--source-repo", str(source),
-            "--scope", str(SCOPE),
-            "--output", str(OUTPUT),
-            "--snapshot", str(SNAPSHOT),
+            "--scope", str(paths["scope"]),
+            "--output", str(paths["output"]),
+            "--snapshot", str(paths["snapshot"]),
         ]
         result = subprocess.run(command, cwd=PROJECT_ROOT)
         require(result.returncode == 0, f"Corpus pipeline exited with code {result.returncode}")
 
-        summary = verify_generated_results()
+        summary = verify_generated_results(paths, expect_c3)
         print("Corpus build completed successfully:")
         print(json.dumps(summary, indent=2, ensure_ascii=False))
         return 0

@@ -1,0 +1,876 @@
+{
+  "accepted_scope_counts": {
+    "additional_provenance_relations": 17,
+    "excluded_audit_rows": 32,
+    "included_cluster_relations": 42,
+    "official_device_type_ids": 4,
+    "primary_products": 3,
+    "unique_cluster_ids": 23
+  },
+  "clusters": [
+    {
+      "cluster_id": "0x0003",
+      "cluster_name": "Identify",
+      "documentation_path": "src/app/clusters/identify-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/chef/devices/rootnode_refrigerator_temperaturecontrolledcabinet_temperaturecontrolledcabinet_ffdb696680.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/identify-server/IdentifyCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/identify-cluster.xml",
+      "sdk_revision": "6",
+      "specification_path": "data_model/1.7/clusters/Identify.xml",
+      "specification_revision": "6"
+    },
+    {
+      "cluster_id": "0x0004",
+      "cluster_name": "Groups",
+      "documentation_path": "unverified",
+      "documentation_status": "missing",
+      "idl_path": "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/groups-server/GroupsClusterImpl.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/groups-cluster.xml",
+      "sdk_revision": "5",
+      "specification_path": "data_model/1.7/clusters/Groups.xml",
+      "specification_revision": "5"
+    },
+    {
+      "cluster_id": "0x0006",
+      "cluster_name": "On/Off",
+      "documentation_path": "unverified",
+      "documentation_status": "missing",
+      "idl_path": "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/on-off-server/OnOffCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/onoff-cluster.xml",
+      "sdk_revision": "7",
+      "specification_path": "data_model/1.7/clusters/OnOff.xml",
+      "specification_revision": "7"
+    },
+    {
+      "cluster_id": "0x001D",
+      "cluster_name": "Descriptor",
+      "documentation_path": "unverified",
+      "documentation_status": "missing",
+      "idl_path": "examples/chef/devices/rootnode_refrigerator_temperaturecontrolledcabinet_temperaturecontrolledcabinet_ffdb696680.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/descriptor/DescriptorCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/descriptor-cluster.xml",
+      "sdk_revision": "3",
+      "specification_path": "data_model/1.7/clusters/Descriptor-Cluster.xml",
+      "specification_revision": "3"
+    },
+    {
+      "cluster_id": "0x001E",
+      "cluster_name": "Binding",
+      "documentation_path": "src/app/clusters/bindings/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/all-clusters-app/all-clusters-common/all-clusters-app.matter",
+      "idl_scope": "generic_all_clusters",
+      "implementation_path": "src/app/clusters/bindings/BindingCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/binding-cluster.xml",
+      "sdk_revision": "1",
+      "specification_path": "data_model/1.7/clusters/Binding-Cluster.xml",
+      "specification_revision": "1"
+    },
+    {
+      "cluster_id": "0x0040",
+      "cluster_name": "Fixed Label",
+      "documentation_path": "unverified",
+      "documentation_status": "missing",
+      "idl_path": "examples/all-clusters-app/all-clusters-common/all-clusters-app.matter",
+      "idl_scope": "generic_all_clusters",
+      "implementation_path": "src/app/clusters/fixed-label-server/FixedLabelCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/fixed-label-cluster.xml",
+      "sdk_revision": "1",
+      "specification_path": "data_model/1.7/clusters/FixedLabel-Cluster.xml",
+      "specification_revision": "1"
+    },
+    {
+      "cluster_id": "0x0041",
+      "cluster_name": "User Label",
+      "documentation_path": "unverified",
+      "documentation_status": "missing",
+      "idl_path": "examples/all-clusters-app/all-clusters-common/all-clusters-app.matter",
+      "idl_scope": "generic_all_clusters",
+      "implementation_path": "src/app/clusters/user-label-server/UserLabelCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/user-label-cluster.xml",
+      "sdk_revision": "1",
+      "specification_path": "data_model/1.7/clusters/UserLabel-Cluster.xml",
+      "specification_revision": "1"
+    },
+    {
+      "cluster_id": "0x0051",
+      "cluster_name": "Laundry Washer Mode",
+      "documentation_path": "src/app/clusters/mode-base-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/laundry-washer-app/nxp/zap/laundry-washer-app.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/mode-base-server/ModeBaseCluster.cpp",
+      "implementation_scope": "framework_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/laundry-washer-mode-cluster.xml",
+      "sdk_revision": "4",
+      "specification_path": "data_model/1.7/clusters/Mode_LaundryWasher.xml",
+      "specification_revision": "4"
+    },
+    {
+      "cluster_id": "0x0052",
+      "cluster_name": "Refrigerator And Temperature Controlled Cabinet Mode",
+      "documentation_path": "src/app/clusters/mode-base-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/chef/devices/rootnode_refrigerator_temperaturecontrolledcabinet_temperaturecontrolledcabinet_ffdb696680.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/mode-base-server/ModeBaseCluster.cpp",
+      "implementation_scope": "framework_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/refrigerator-and-temperature-controlled-cabinet-mode-cluster.xml",
+      "sdk_revision": "4",
+      "specification_path": "data_model/1.7/clusters/Mode_Refrigerator.xml",
+      "specification_revision": "4"
+    },
+    {
+      "cluster_id": "0x0053",
+      "cluster_name": "Laundry Washer Controls",
+      "documentation_path": "unverified",
+      "documentation_status": "missing",
+      "idl_path": "examples/laundry-washer-app/nxp/zap/laundry-washer-app.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/laundry-washer-controls-server/LaundryWasherControlsCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/washer-controls-cluster.xml",
+      "sdk_revision": "2",
+      "specification_path": "data_model/1.7/clusters/LaundryWasherControls.xml",
+      "specification_revision": "2"
+    },
+    {
+      "cluster_id": "0x0056",
+      "cluster_name": "Temperature Control",
+      "documentation_path": "unverified",
+      "documentation_status": "missing",
+      "idl_path": "examples/laundry-washer-app/nxp/zap/laundry-washer-app.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/temperature-control-server/TemperatureControlCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/temperature-control-cluster.xml",
+      "sdk_revision": "1",
+      "specification_path": "data_model/1.7/clusters/TemperatureControl.xml",
+      "specification_revision": "1"
+    },
+    {
+      "cluster_id": "0x0057",
+      "cluster_name": "Refrigerator Alarm",
+      "documentation_path": "src/app/clusters/alarm-base-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/chef/devices/rootnode_refrigerator_temperaturecontrolledcabinet_temperaturecontrolledcabinet_ffdb696680.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/refrigerator-alarm-server/RefrigeratorAlarmCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/refrigerator-alarm.xml",
+      "sdk_revision": "1",
+      "specification_path": "data_model/1.7/clusters/RefrigeratorAlarm.xml",
+      "specification_revision": "1"
+    },
+    {
+      "cluster_id": "0x0060",
+      "cluster_name": "Operational State",
+      "documentation_path": "src/app/clusters/operational-state-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/laundry-washer-app/nxp/zap/laundry-washer-app.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/operational-state-server/OperationalStateCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/operational-state-cluster.xml",
+      "sdk_revision": "3",
+      "specification_path": "data_model/1.7/clusters/OperationalState.xml",
+      "specification_revision": "3"
+    },
+    {
+      "cluster_id": "0x0062",
+      "cluster_name": "Scenes Management",
+      "documentation_path": "unverified",
+      "documentation_status": "missing",
+      "idl_path": "examples/all-clusters-app/all-clusters-common/all-clusters-app.matter",
+      "idl_scope": "generic_all_clusters",
+      "implementation_path": "src/app/clusters/scenes-server/ScenesManagementCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/scene.xml",
+      "sdk_revision": "2",
+      "specification_path": "data_model/1.7/clusters/Scenes.xml",
+      "specification_revision": "2"
+    },
+    {
+      "cluster_id": "0x0063",
+      "cluster_name": "Thermostat Mode",
+      "documentation_path": "src/app/clusters/mode-base-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/all-clusters-app/all-clusters-common/all-clusters-app.matter",
+      "idl_scope": "generic_all_clusters",
+      "implementation_path": "src/app/clusters/mode-base-server/ModeBaseCluster.cpp",
+      "implementation_scope": "framework_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/thermostat-mode-cluster.xml",
+      "sdk_revision": "1",
+      "specification_path": "data_model/1.7/clusters/Mode_Thermostat.xml",
+      "specification_revision": "1"
+    },
+    {
+      "cluster_id": "0x0064",
+      "cluster_name": "Temperature Alarm",
+      "documentation_path": "unverified",
+      "documentation_status": "missing",
+      "idl_path": "unverified",
+      "idl_scope": "unverified",
+      "implementation_path": "unverified",
+      "implementation_scope": "unverified",
+      "sdk_definition_path": "unverified",
+      "sdk_revision": "unverified",
+      "specification_path": "data_model/1.7/clusters/TemperatureAlarm.xml",
+      "specification_revision": "1"
+    },
+    {
+      "cluster_id": "0x0071",
+      "cluster_name": "HEPA Filter Monitoring",
+      "documentation_path": "src/app/clusters/resource-monitoring-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/all-clusters-app/all-clusters-common/all-clusters-app.matter",
+      "idl_scope": "generic_all_clusters",
+      "implementation_path": "src/app/clusters/resource-monitoring-server/ResourceMonitoringCluster.cpp",
+      "implementation_scope": "framework_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/resource-monitoring-cluster.xml",
+      "sdk_revision": "1",
+      "specification_path": "data_model/1.7/clusters/ResourceMonitoring.xml",
+      "specification_revision": "2"
+    },
+    {
+      "cluster_id": "0x0072",
+      "cluster_name": "Activated Carbon Filter Monitoring",
+      "documentation_path": "src/app/clusters/resource-monitoring-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/all-clusters-app/all-clusters-common/all-clusters-app.matter",
+      "idl_scope": "generic_all_clusters",
+      "implementation_path": "src/app/clusters/resource-monitoring-server/ResourceMonitoringCluster.cpp",
+      "implementation_scope": "framework_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/resource-monitoring-cluster.xml",
+      "sdk_revision": "1",
+      "specification_path": "data_model/1.7/clusters/ResourceMonitoring.xml",
+      "specification_revision": "2"
+    },
+    {
+      "cluster_id": "0x0201",
+      "cluster_name": "Thermostat",
+      "documentation_path": "unverified",
+      "documentation_status": "missing",
+      "idl_path": "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/thermostat-server/ThermostatClusterBase.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/thermostat-cluster.xml",
+      "sdk_revision": "12",
+      "specification_path": "data_model/1.7/clusters/Thermostat.xml",
+      "specification_revision": "12"
+    },
+    {
+      "cluster_id": "0x0202",
+      "cluster_name": "Fan Control",
+      "documentation_path": "src/app/clusters/fan-control-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/fan-control-server/FanControlCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/fan-control-cluster.xml",
+      "sdk_revision": "7",
+      "specification_path": "data_model/1.7/clusters/FanControl.xml",
+      "specification_revision": "7"
+    },
+    {
+      "cluster_id": "0x0204",
+      "cluster_name": "Thermostat User Interface Configuration",
+      "documentation_path": "src/app/clusters/thermostat-user-interface-configuration-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/thermostat-user-interface-configuration-server/ThermostatUserInterfaceConfigurationCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/thermostat-user-interface-configuration-cluster.xml",
+      "sdk_revision": "2",
+      "specification_path": "data_model/1.7/clusters/ThermostatUserInterfaceConfiguration.xml",
+      "specification_revision": "2"
+    },
+    {
+      "cluster_id": "0x0402",
+      "cluster_name": "Temperature Measurement",
+      "documentation_path": "src/app/clusters/temperature-measurement-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/temperature-measurement-server/TemperatureMeasurementCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/temperature-measurement-cluster.xml",
+      "sdk_revision": "6",
+      "specification_path": "data_model/1.7/clusters/TemperatureMeasurement.xml",
+      "specification_revision": "6"
+    },
+    {
+      "cluster_id": "0x0405",
+      "cluster_name": "Relative Humidity Measurement",
+      "documentation_path": "src/app/clusters/relative-humidity-measurement-server/README.md",
+      "documentation_status": "present",
+      "idl_path": "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.matter",
+      "idl_scope": "device_example",
+      "implementation_path": "src/app/clusters/relative-humidity-measurement-server/RelativeHumidityMeasurementCluster.cpp",
+      "implementation_scope": "cluster_shared",
+      "sdk_definition_path": "src/app/zap-templates/zcl/data-model/chip/relative-humidity-measurement-cluster.xml",
+      "sdk_revision": "3",
+      "specification_path": "data_model/1.7/clusters/WaterContentMeasurement.xml",
+      "specification_revision": "5"
+    }
+  ],
+  "corpus_version": "0.1-c3",
+  "coverage_status_counts": {
+    "missing": 21,
+    "not_applicable": 32,
+    "present": 38,
+    "unverified": 0
+  },
+  "documentation_policy": {
+    "allow_missing_with_report": true,
+    "do_not_replace_with_id_catalog": true,
+    "include_confirmed_cluster_guides_from_coverage": true,
+    "missing_definition": "no standalone Markdown component guide at the recorded search root; no repository-wide claim"
+  },
+  "example_rules": {
+    "artifacts": [
+      "examples/all-clusters-app/all-clusters-common/all-clusters-app.matter",
+      "examples/chef/devices/rootnode_refrigerator_temperaturecontrolledcabinet_temperaturecontrolledcabinet_ffdb696680.matter",
+      "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.matter",
+      "examples/laundry-washer-app/nxp/zap/laundry-washer-app.matter",
+      "examples/refrigerator-app/refrigerator-common/refrigerator-app.matter",
+      "examples/all-clusters-app/all-clusters-common/all-clusters-app.zap",
+      "examples/chef/devices/rootnode_refrigerator_temperaturecontrolledcabinet_temperaturecontrolledcabinet_ffdb696680.zap",
+      "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.zap",
+      "examples/laundry-washer-app/nxp/zap/laundry-washer-app.zap",
+      "examples/refrigerator-app/refrigerator-common/refrigerator-app.zap"
+    ],
+    "build_linkage_evidence": {
+      "follow_build_dependencies": false,
+      "path": "examples/laundry-washer-app/nxp/CMakeLists.txt",
+      "selection": "target_include_directories and target_sources entries for listed delegate files only"
+    },
+    "implementation_allowlist": [
+      "examples/laundry-washer-app/nxp/common/main/laundry-washer-mode.cpp",
+      "examples/laundry-washer-app/nxp/common/main/DeviceCallbacks.cpp",
+      "examples/laundry-washer-app/nxp/common/main/ZclCallbacks.cpp",
+      "examples/refrigerator-app/refrigerator-common/src/static-supported-temperature-levels.cpp",
+      "examples/all-clusters-app/all-clusters-common/include/laundry-washer-mode.h",
+      "examples/all-clusters-app/all-clusters-common/src/laundry-washer-controls-delegate-impl.cpp",
+      "examples/all-clusters-app/all-clusters-common/include/laundry-washer-controls-delegate-impl.h",
+      "examples/laundry-washer-app/nxp/common/main/include/DeviceCallbacks.h",
+      "examples/refrigerator-app/refrigerator-common/include/static-supported-temperature-levels.h"
+    ],
+    "never_infer_required_clusters_from_examples": true,
+    "partial_extraction_required": true,
+    "preserve_complete_original_in_raw": true,
+    "selection": "only named device endpoint declarations, selected cluster definitions and topology; unrelated content in whole raw artifact is not eligible input",
+    "selection_contract": {
+      "ambiguity": "fail and report if a selector cannot retain necessary shared definitions",
+      "code": "whole allowed .cpp/.h files only; do not slice functions during initial extraction",
+      "markdown": "whole allowlisted guides; no linked-document crawling",
+      "matter_idl": "complete selected cluster declarations; selected device endpoints and their relevant server blocks; referenced global type definitions; root endpoint only as topology context",
+      "sdk_xml": "selected deviceType and cluster code nodes plus referenced 1-hop shared types; include global cluster attributes",
+      "specification_xml": "selected clusterId or deviceType plus its complete constraints/revision history and shared definitions; shared containers may hold other IDs without expansion",
+      "zap": "selected endpointTypes for scoped devices and endpoints plus parent identifiers; no commissioning cluster expansion"
+    },
+    "shared_delegate_exception": {
+      "evidence_lines": [
+        78,
+        92
+      ],
+      "evidence_path": "examples/laundry-washer-app/nxp/CMakeLists.txt",
+      "files": [
+        "examples/all-clusters-app/all-clusters-common/include/laundry-washer-mode.h",
+        "examples/all-clusters-app/all-clusters-common/src/laundry-washer-controls-delegate-impl.cpp",
+        "examples/all-clusters-app/all-clusters-common/include/laundry-washer-controls-delegate-impl.h"
+      ],
+      "implementation_scope": "cluster_shared",
+      "scope": "only listed reusable washer delegate/header; no all-clusters source directory traversal"
+    }
+  },
+  "excluded_cabinet_clusters": [
+    "0x0048",
+    "0x0049"
+  ],
+  "excluded_device_types": [
+    "Air Purifier:0x002D",
+    "Dishwasher:0x0075",
+    "Laundry Dryer:0x007C"
+  ],
+  "execution": {
+    "extraction_authorized": true,
+    "extraction_script_created": false,
+    "rag_wiki_preprocessing_authorized": false
+  },
+  "extraction_script_readiness": {
+    "ready_to_implement": true,
+    "reason": "Scope rules and mappings fixed; usage conditions and extraction validation remain gates before dataset release/freeze",
+    "run_extraction_now": false
+  },
+  "finalized_on": "2026-09-25",
+  "freeze_blocker_policy": "Known bounded missing prose and provisional specification-only cluster are accepted scope gaps; they are not silently required to become present. Freeze still requires gap-aware review and all extraction/provenance/context checks.",
+  "freeze_blockers": [
+    "source usage conditions for transformation/distribution unresolved",
+    "extraction script and deterministic selectors not implemented",
+    "raw/normalized hashes and provenance validation not produced",
+    "identifier and repeatability checks not executed",
+    "token counts and compiled Wiki context fit not measured",
+    "team review and benchmark evidence eligibility not completed"
+  ],
+  "generated_metadata_policy": {
+    "allowed_suffixes": [
+      "Metadata.h",
+      "Ids.h"
+    ],
+    "files": [
+      "zzz_generated/app-common/clusters/HepaFilterMonitoring/Metadata.h",
+      "zzz_generated/app-common/clusters/ActivatedCarbonFilterMonitoring/Metadata.h",
+      "zzz_generated/app-common/clusters/RelativeHumidityMeasurement/Metadata.h"
+    ],
+    "no_client_code_import": true,
+    "purpose": "declared revision evidence only",
+    "role": "generated_definition"
+  },
+  "implementation_rules": {
+    "component_roots": [
+      "src/app/clusters/alarm-base-server",
+      "src/app/clusters/bindings",
+      "src/app/clusters/descriptor",
+      "src/app/clusters/fan-control-server",
+      "src/app/clusters/fixed-label-server",
+      "src/app/clusters/groups-server",
+      "src/app/clusters/identify-server",
+      "src/app/clusters/laundry-washer-controls-server",
+      "src/app/clusters/mode-base-server",
+      "src/app/clusters/on-off-server",
+      "src/app/clusters/operational-state-server",
+      "src/app/clusters/refrigerator-alarm-server",
+      "src/app/clusters/relative-humidity-measurement-server",
+      "src/app/clusters/resource-monitoring-server",
+      "src/app/clusters/scenes-server",
+      "src/app/clusters/temperature-control-server",
+      "src/app/clusters/temperature-measurement-server",
+      "src/app/clusters/thermostat-server",
+      "src/app/clusters/thermostat-user-interface-configuration-server",
+      "src/app/clusters/user-label-server"
+    ],
+    "framework_contract_allowlist": [
+      "src/app/server-cluster/DefaultServerCluster.h"
+    ],
+    "header_source_pairs": true,
+    "include_local_codegen_integration": true,
+    "include_patterns": [
+      "*.cpp",
+      "*.h"
+    ],
+    "recursive": false,
+    "shared_physical_file_policy": "one artifact per source_path and snapshot; many relations; no per-device copies",
+    "stop_at_external_includes": true
+  },
+  "known_gaps": [
+    {
+      "acceptance": "retain specification-only optional/provisional relation; no invented SDK/implementation",
+      "id": "G1",
+      "item": "Temperature Alarm 0x0064",
+      "status": "missing"
+    },
+    {
+      "acceptance": "retain partial coverage; avoid prose-only benchmark expectations",
+      "id": "G2",
+      "item": "No standalone Markdown in 9 concrete implementation directories; Temperature Alarm also has no verified dedicated guide",
+      "status": "missing"
+    },
+    {
+      "acceptance": "retain distinct versioned assertions; no automatic error verdict",
+      "id": "G3",
+      "item": "Cross-source revision/endpoint differences",
+      "status": "unverified"
+    }
+  ],
+  "old_unverified_disposition": {
+    "missing": 21,
+    "not_applicable": 16
+  },
+  "physical_deduplication": "Resolve all source_sets/rules to one file per snapshot+path; roles attach as logical bindings, never duplicate bytes. Declared revisions attach to source entities.",
+  "products": [
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/LaundryWasher.xml",
+      "direct_cluster_ids": [
+        "0x0003",
+        "0x0006",
+        "0x0051",
+        "0x0053",
+        "0x0056",
+        "0x0060"
+      ],
+      "id": "0x0073",
+      "name": "Laundry Washer",
+      "product_role": "primary_product"
+    },
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/RoomAirConditioner.xml",
+      "direct_cluster_ids": [
+        "0x0003",
+        "0x0004",
+        "0x0006",
+        "0x0062",
+        "0x0063",
+        "0x0071",
+        "0x0072",
+        "0x0201",
+        "0x0202",
+        "0x0204",
+        "0x0402",
+        "0x0405"
+      ],
+      "id": "0x0072",
+      "name": "Room Air Conditioner",
+      "product_role": "primary_product"
+    },
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/Refrigerator.xml",
+      "direct_cluster_ids": [
+        "0x0003",
+        "0x0052",
+        "0x0057",
+        "0x0072"
+      ],
+      "id": "0x0070",
+      "name": "Refrigerator",
+      "product_role": "primary_product"
+    },
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/TemperatureControlledCabinet.xml",
+      "direct_cluster_ids": [
+        "0x0052",
+        "0x0056",
+        "0x0064",
+        "0x0402"
+      ],
+      "id": "0x0071",
+      "name": "Temperature Controlled Cabinet",
+      "product_role": "related_cooler_device"
+    }
+  ],
+  "repository": {
+    "baseline_policy": "Pinned development snapshot; no claim of released Matter specification",
+    "branch_observed": "master",
+    "commit_sha": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+    "data_model_directory": "data_model/1.7",
+    "name": "connectedhomeip",
+    "read_only": true,
+    "spec_sha": "214e40c9d51cfe89050eae68ca5b76238fcfa332",
+    "spec_tag": "0.9-1.7-winter2027"
+  },
+  "schema_version": "2.0",
+  "scope_profile": {
+    "base_requirements": "include all four base declarations without assuming condition truth",
+    "optional_cluster_policy": "include all direct optional/conditional/provisional declarations; do not assert enabled",
+    "refrigerator": {
+      "Cooler": true,
+      "Heater": false
+    }
+  },
+  "scope_version": "scope-c3-v1.0",
+  "snapshot_namespace": "corpus-c3",
+  "source_role_policy": {
+    "allowed": [
+      "specification",
+      "sdk_codegen",
+      "documentation",
+      "implementation",
+      "example",
+      "test",
+      "generated_definition"
+    ],
+    "definition_kind": [
+      "device_type",
+      "cluster",
+      "cluster_base",
+      "framework_contract",
+      "none"
+    ],
+    "version_contract": "source_revision holds artifact identity and per-entity declared revisions; source_role and definition_kind are independent axes"
+  },
+  "source_sets": [
+    {
+      "definition_kind": "device_type",
+      "paths": [
+        "data_model/1.7/device_types/LaundryWasher.xml",
+        "data_model/1.7/device_types/RoomAirConditioner.xml",
+        "data_model/1.7/device_types/Refrigerator.xml",
+        "data_model/1.7/device_types/TemperatureControlledCabinet.xml",
+        "data_model/1.7/device_types/BaseDeviceType.xml",
+        "data_model/1.7/device_types/RootNodeDeviceType.xml"
+      ],
+      "selection": "scoped requirements and bounded condition context",
+      "source_role": "specification"
+    },
+    {
+      "definition_kind": "cluster",
+      "paths": [
+        "data_model/1.7/clusters/Binding-Cluster.xml",
+        "data_model/1.7/clusters/Descriptor-Cluster.xml",
+        "data_model/1.7/clusters/FanControl.xml",
+        "data_model/1.7/clusters/FixedLabel-Cluster.xml",
+        "data_model/1.7/clusters/Groups.xml",
+        "data_model/1.7/clusters/Identify.xml",
+        "data_model/1.7/clusters/LaundryWasherControls.xml",
+        "data_model/1.7/clusters/Mode_LaundryWasher.xml",
+        "data_model/1.7/clusters/Mode_Refrigerator.xml",
+        "data_model/1.7/clusters/Mode_Thermostat.xml",
+        "data_model/1.7/clusters/OnOff.xml",
+        "data_model/1.7/clusters/OperationalState.xml",
+        "data_model/1.7/clusters/RefrigeratorAlarm.xml",
+        "data_model/1.7/clusters/ResourceMonitoring.xml",
+        "data_model/1.7/clusters/Scenes.xml",
+        "data_model/1.7/clusters/TemperatureAlarm.xml",
+        "data_model/1.7/clusters/TemperatureControl.xml",
+        "data_model/1.7/clusters/TemperatureMeasurement.xml",
+        "data_model/1.7/clusters/Thermostat.xml",
+        "data_model/1.7/clusters/ThermostatUserInterfaceConfiguration.xml",
+        "data_model/1.7/clusters/UserLabel-Cluster.xml",
+        "data_model/1.7/clusters/WaterContentMeasurement.xml"
+      ],
+      "selection": "scoped IDs, conditions and complete shared type context; do not traverse other IDs in the container",
+      "source_role": "specification"
+    },
+    {
+      "definition_kind": "cluster_base",
+      "paths": [
+        "data_model/1.7/clusters/ModeBase.xml",
+        "data_model/1.7/clusters/AlarmBase.xml",
+        "data_model/1.7/clusters/Label-Cluster.xml"
+      ],
+      "source_role": "specification"
+    },
+    {
+      "definition_kind": "device_type",
+      "paths": [
+        "src/app/zap-templates/zcl/data-model/chip/matter-devices.xml"
+      ],
+      "selection": "four device IDs plus bounded base/root condition evidence only",
+      "source_role": "sdk_codegen"
+    },
+    {
+      "definition_kind": "cluster",
+      "paths": [
+        "src/app/zap-templates/zcl/data-model/chip/binding-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/descriptor-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/fan-control-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/fixed-label-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/groups-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/identify-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/laundry-washer-mode-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/onoff-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/operational-state-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/refrigerator-alarm.xml",
+        "src/app/zap-templates/zcl/data-model/chip/refrigerator-and-temperature-controlled-cabinet-mode-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/relative-humidity-measurement-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/resource-monitoring-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/scene.xml",
+        "src/app/zap-templates/zcl/data-model/chip/temperature-control-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/temperature-measurement-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/thermostat-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/thermostat-mode-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/thermostat-user-interface-configuration-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/user-label-cluster.xml",
+        "src/app/zap-templates/zcl/data-model/chip/washer-controls-cluster.xml"
+      ],
+      "source_role": "sdk_codegen"
+    },
+    {
+      "definition_kind": "cluster_base",
+      "paths": [
+        "src/app/zap-templates/zcl/data-model/chip/mode-base-cluster.xml"
+      ],
+      "source_role": "sdk_codegen"
+    },
+    {
+      "definition_kind": "none",
+      "paths": [
+        "examples/all-clusters-app/all-clusters-common/all-clusters-app.matter",
+        "examples/chef/devices/rootnode_refrigerator_temperaturecontrolledcabinet_temperaturecontrolledcabinet_ffdb696680.matter",
+        "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.matter",
+        "examples/laundry-washer-app/nxp/zap/laundry-washer-app.matter",
+        "examples/refrigerator-app/refrigerator-common/refrigerator-app.matter",
+        "examples/all-clusters-app/all-clusters-common/all-clusters-app.zap",
+        "examples/chef/devices/rootnode_refrigerator_temperaturecontrolledcabinet_temperaturecontrolledcabinet_ffdb696680.zap",
+        "examples/chef/devices/rootnode_roomairconditioner_9cf3607804.zap",
+        "examples/laundry-washer-app/nxp/zap/laundry-washer-app.zap",
+        "examples/refrigerator-app/refrigerator-common/refrigerator-app.zap"
+      ],
+      "selection": "see example_rules.selection_contract",
+      "source_role": "example"
+    },
+    {
+      "content_kind": "implementation",
+      "definition_kind": "none",
+      "paths": [
+        "examples/laundry-washer-app/nxp/common/main/laundry-washer-mode.cpp",
+        "examples/laundry-washer-app/nxp/common/main/DeviceCallbacks.cpp",
+        "examples/laundry-washer-app/nxp/common/main/ZclCallbacks.cpp",
+        "examples/refrigerator-app/refrigerator-common/src/static-supported-temperature-levels.cpp",
+        "examples/all-clusters-app/all-clusters-common/include/laundry-washer-mode.h",
+        "examples/all-clusters-app/all-clusters-common/src/laundry-washer-controls-delegate-impl.cpp",
+        "examples/all-clusters-app/all-clusters-common/include/laundry-washer-controls-delegate-impl.h",
+        "examples/laundry-washer-app/nxp/common/main/include/DeviceCallbacks.h",
+        "examples/refrigerator-app/refrigerator-common/include/static-supported-temperature-levels.h"
+      ],
+      "source_role": "example"
+    },
+    {
+      "definition_kind": "cluster",
+      "paths": [
+        "zzz_generated/app-common/clusters/HepaFilterMonitoring/Metadata.h",
+        "zzz_generated/app-common/clusters/ActivatedCarbonFilterMonitoring/Metadata.h",
+        "zzz_generated/app-common/clusters/RelativeHumidityMeasurement/Metadata.h"
+      ],
+      "source_role": "generated_definition"
+    },
+    {
+      "definition_kind": "none",
+      "paths": [
+        "data_model/README.md",
+        "docs/cluster_and_device_type_dev/cluster_and_device_type_dev.md",
+        "docs/guides/matter_idl_tooling.md",
+        "docs/guides/writing_clusters.md",
+        "examples/chef/README.md",
+        "examples/laundry-washer-app/nxp/README.md",
+        "examples/refrigerator-app/linux/README.md",
+        "src/app/clusters/alarm-base-server/README.md",
+        "src/app/clusters/bindings/README.md",
+        "src/app/clusters/fan-control-server/README.md",
+        "src/app/clusters/identify-server/README.md",
+        "src/app/clusters/mode-base-server/README.md",
+        "src/app/clusters/operational-state-server/README.md",
+        "src/app/clusters/relative-humidity-measurement-server/README.md",
+        "src/app/clusters/resource-monitoring-server/README.md",
+        "src/app/clusters/temperature-measurement-server/README.md",
+        "src/app/clusters/thermostat-user-interface-configuration-server/README.md"
+      ],
+      "source_role": "documentation"
+    },
+    {
+      "definition_kind": "cluster",
+      "root_rule": "implementation_rules.component_roots with nonrecursive *.cpp/*.h; source_revision.artifact=repository.commit_sha",
+      "source_role": "implementation"
+    },
+    {
+      "definition_kind": "framework_contract",
+      "paths": [
+        "src/app/server-cluster/DefaultServerCluster.h"
+      ],
+      "source_role": "implementation"
+    },
+    {
+      "content_kind": "build_configuration",
+      "definition_kind": "none",
+      "paths": [
+        "examples/laundry-washer-app/nxp/CMakeLists.txt"
+      ],
+      "selection": "only declared target_include_directories/target_sources evidence for allowlisted washer delegate; do not execute or traverse build graph",
+      "source_role": "example"
+    }
+  ],
+  "state": "finalized_scope_not_frozen_corpus",
+  "support_definitions": [
+    "data_model/1.7/device_types/BaseDeviceType.xml",
+    "data_model/1.7/device_types/RootNodeDeviceType.xml",
+    "src/app/zap-templates/zcl/data-model/chip/matter-devices.xml",
+    "data_model/1.7/clusters/ModeBase.xml",
+    "data_model/1.7/clusters/AlarmBase.xml",
+    "data_model/1.7/clusters/Label-Cluster.xml",
+    "src/app/zap-templates/zcl/data-model/chip/mode-base-cluster.xml",
+    "src/app/server-cluster/DefaultServerCluster.h",
+    "src/app/SpecificationDefinedRevisions.h",
+    "data_model/1.7/spec_sha",
+    "data_model/1.7/spec_tag",
+    "data_model/1.7/scraper_version"
+  ],
+  "support_documentation": [
+    "data_model/README.md",
+    "docs/cluster_and_device_type_dev/cluster_and_device_type_dev.md",
+    "docs/guides/matter_idl_tooling.md",
+    "docs/guides/writing_clusters.md",
+    "examples/chef/README.md",
+    "examples/laundry-washer-app/nxp/README.md",
+    "examples/refrigerator-app/linux/README.md",
+    "src/app/clusters/identify-server/README.md",
+    "src/app/clusters/bindings/README.md",
+    "src/app/clusters/mode-base-server/README.md",
+    "src/app/clusters/alarm-base-server/README.md",
+    "src/app/clusters/operational-state-server/README.md",
+    "src/app/clusters/resource-monitoring-server/README.md",
+    "src/app/clusters/fan-control-server/README.md",
+    "src/app/clusters/thermostat-user-interface-configuration-server/README.md",
+    "src/app/clusters/temperature-measurement-server/README.md",
+    "src/app/clusters/relative-humidity-measurement-server/README.md"
+  ],
+  "test_policy": "not included in core scope; named unit tests may be read for review but cannot auto-expand corpus",
+  "tier": "c3",
+  "traversal": {
+    "base_device_hops": 1,
+    "cluster_base_allowlist": [
+      "Mode Base",
+      "Alarm Base",
+      "Label"
+    ],
+    "cluster_base_definition_hops": 1,
+    "no_platform_third_party_build_traversal": true,
+    "no_reverse_alias_traversal": true,
+    "related_device_allowlist": [
+      "0x0071"
+    ],
+    "related_device_hops": 1,
+    "root_node": "definition-only for GroupcastListenerCond; no cluster expansion",
+    "semantic_entity_scope_vs_whole_file": "retain unmodified raw files later; slice common input deterministically by selected entity with evidence spans",
+    "stop_on_ambiguous_selector": "fail validation; no silent truncation",
+    "stop_on_missing": "record missing; never substitute a nearby cluster implementation"
+  },
+  "validation_summary": {
+    "coverage_rows": 91,
+    "reference_head_matches": true,
+    "reference_worktree_clean": true,
+    "selected_cluster_relations": 42,
+    "semantic_conformance_validated": false,
+    "unique_cluster_ids": 23
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "common_base_cluster_ids": [29, 30, 64, 65],
+  "device_type_overrides": {
+    "112": {
+      "product_role": "primary_product"
+    },
+    "113": {
+      "exclude_direct_cluster_ids": [72, 73],
+      "product_role": "related_cooler_device",
+      "scope_profile": {
+        "Cooler": true,
+        "Heater": false
+      }
+    },
+    "114": {
+      "product_role": "primary_product"
+    },
+    "115": {
+      "product_role": "primary_product"
+    },
+    "119": {
+      "product_role": "related_cook_surface_device"
+    },
+    "120": {
+      "product_role": "primary_product"
+    }
+  },
+  "related_device_types": {
+    "112": [113],
+    "120": [119]
+  },
+  "schema_version": "1.0"
+}
