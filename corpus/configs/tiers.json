@@ -1,0 +1,28 @@
+{
+  "data_model_directory": "data_model/1.7",
+  "default_overrides": "overrides.json",
+  "source_overrides": "source_overrides.json",
+  "repository": {
+    "commit_sha": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+    "environment_variable": "CONNECTEDHOMEIP_PATH",
+    "name": "connectedhomeip"
+  },
+  "schema_version": "1.0",
+  "tiers": [
+    {
+      "declaration": "c3.json",
+      "name": "c3",
+      "output_root": "../tiers/c3"
+    },
+    {
+      "declaration": "c6.json",
+      "name": "c6",
+      "output_root": "../tiers/c6"
+    },
+    {
+      "declaration": "c12.json",
+      "name": "c12",
+      "output_root": "../tiers/c12"
+    }
+  ]
+}

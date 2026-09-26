@@ -1,0 +1,22 @@
+{
+  "add_product_families": [
+    {
+      "device_types": [116],
+      "name": "Robotic Vacuum Cleaner"
+    },
+    {
+      "device_types": [117],
+      "name": "Dishwasher"
+    },
+    {
+      "device_types": [45],
+      "name": "Air Purifier"
+    }
+  ],
+  "inherits": "c3",
+  "corpus_version": "0.1-c6",
+  "finalized_on": "2026-09-25",
+  "schema_version": "1.0",
+  "snapshot_namespace": "corpus-c6",
+  "tier": "c6"
+}

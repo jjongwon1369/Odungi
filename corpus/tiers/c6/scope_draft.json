@@ -1,0 +1,219 @@
+{
+  "corpus_version": "0.1-c6",
+  "counts": {
+    "device_types": 7,
+    "direct_device_cluster_relations": 43,
+    "product_families": 6,
+    "unique_direct_clusters": 25
+  },
+  "draft": true,
+  "extraction_authorized": false,
+  "product_families": [
+    {
+      "device_types": [
+        115
+      ],
+      "name": "Laundry Washer"
+    },
+    {
+      "device_types": [
+        114
+      ],
+      "name": "Room Air Conditioner"
+    },
+    {
+      "device_types": [
+        112,
+        113
+      ],
+      "name": "Refrigerator"
+    },
+    {
+      "device_types": [
+        116
+      ],
+      "name": "Robotic Vacuum Cleaner"
+    },
+    {
+      "device_types": [
+        117
+      ],
+      "name": "Dishwasher"
+    },
+    {
+      "device_types": [
+        45
+      ],
+      "name": "Air Purifier"
+    }
+  ],
+  "products": [
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/LaundryWasher.xml",
+      "direct_cluster_ids": [
+        "0x0003",
+        "0x0006",
+        "0x0051",
+        "0x0053",
+        "0x0056",
+        "0x0060"
+      ],
+      "id": "0x0073",
+      "name": "Laundry Washer",
+      "product_role": "primary_product",
+      "revision": "2"
+    },
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/RoomAirConditioner.xml",
+      "direct_cluster_ids": [
+        "0x0003",
+        "0x0004",
+        "0x0006",
+        "0x0062",
+        "0x0063",
+        "0x0071",
+        "0x0072",
+        "0x0201",
+        "0x0202",
+        "0x0204",
+        "0x0402",
+        "0x0405"
+      ],
+      "id": "0x0072",
+      "name": "Room Air Conditioner",
+      "product_role": "primary_product",
+      "revision": "5"
+    },
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/Refrigerator.xml",
+      "direct_cluster_ids": [
+        "0x0003",
+        "0x0052",
+        "0x0057",
+        "0x0072"
+      ],
+      "id": "0x0070",
+      "name": "Refrigerator",
+      "product_role": "primary_product",
+      "revision": "3"
+    },
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/TemperatureControlledCabinet.xml",
+      "direct_cluster_ids": [
+        "0x0052",
+        "0x0056",
+        "0x0064",
+        "0x0402"
+      ],
+      "excluded_direct_cluster_ids": [
+        "0x0048",
+        "0x0049"
+      ],
+      "id": "0x0071",
+      "name": "Temperature Controlled Cabinet",
+      "product_role": "related_cooler_device",
+      "revision": "6",
+      "scope_profile": {
+        "Cooler": true,
+        "Heater": false
+      }
+    },
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/RoboticVacuumCleaner.xml",
+      "direct_cluster_ids": [
+        "0x0003",
+        "0x0054",
+        "0x0055",
+        "0x0061",
+        "0x0150"
+      ],
+      "id": "0x0074",
+      "name": "Robotic Vacuum Cleaner",
+      "revision": "4"
+    },
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/Dishwasher.xml",
+      "direct_cluster_ids": [
+        "0x0003",
+        "0x0006",
+        "0x0056",
+        "0x0059",
+        "0x005D",
+        "0x0060"
+      ],
+      "id": "0x0075",
+      "name": "Dishwasher",
+      "revision": "2"
+    },
+    {
+      "base_cluster_ids": [
+        "0x001D",
+        "0x001E",
+        "0x0040",
+        "0x0041"
+      ],
+      "definition_path": "data_model/1.7/device_types/AirPurifier.xml",
+      "direct_cluster_ids": [
+        "0x0003",
+        "0x0004",
+        "0x0006",
+        "0x0071",
+        "0x0072",
+        "0x0202"
+      ],
+      "id": "0x002D",
+      "name": "Air Purifier",
+      "revision": "4"
+    }
+  ],
+  "repository": {
+    "commit_sha": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+    "name": "connectedhomeip"
+  },
+  "review_required": [
+    "cluster source mapping",
+    "implementation/documentation/example evidence",
+    "include/exclude and missing/not_applicable decisions",
+    "feature conditions and requirements",
+    "product-specific exceptions"
+  ],
+  "schema_version": "1.0-draft",
+  "snapshot_namespace": "corpus-c6",
+  "tier": "c6"
+}

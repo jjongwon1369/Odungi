@@ -5,6 +5,37 @@ Python 3.10+ 표준 라이브러리와 Git만 사용한다. 외부 패키지 설
 origin은 GitHub의 connectedhomeip 또는 그 fork인지 검사하고, 실제 정체성은 고정 commit과 추적 파일로 확인한다.
 dirty checkout, 다른 commit, 누락 경로, Scope/Coverage 불일치에서 실패한다.
 
+## Tier 확장 작업
+
+`corpus/configs/c3.json`, `c6.json`, `c12.json`은 Tier별 Device Type 범위를 선언한다. 다음 명령은 고정된 upstream commit에서 Device Type XML을 읽어 검토용 초안을 생성한다.
+
+```powershell
+$env:CONNECTEDHOMEIP_PATH = (Resolve-Path "..\connectedhomeip").Path
+python scripts/corpus/generate_scope.py --all
+```
+
+생성되는 `corpus/tiers/<tier>/scope_draft.json`은 `extraction_authorized=false`인 초안이다. source mapping, coverage 결정, 조건과 예외를 검토하여 `scope.json`과 `coverage_matrix.csv`를 확정하기 전에는 extraction 입력으로 사용하지 않는다.
+
+확정된 Tier는 다음 인터페이스로 빌드한다.
+
+```powershell
+python scripts/corpus/build.py --corpus-root corpus/tiers/c6
+```
+
+`extract_corpus.py --corpus-root corpus/tiers/c6`도 같은 Tier 경로 계약을 사용하며, source repository는 `--source-repo` 또는 `CONNECTEDHOMEIP_PATH`에서 읽는다. 기존 단일 C3 명령은 하위 호환을 위해 유지한다.
+
+Registry에 등록된 전체 Tier의 준비 상태는 다음 명령으로 확인한다.
+
+```powershell
+python scripts/corpus/build_tiers.py --status-only
+```
+
+모든 Tier에 검토 완료된 `scope.json`과 `coverage_matrix.csv`가 존재하면 다음 명령으로 registry 순서대로 빌드하고 인접 Tier 포함 관계까지 검사한다.
+
+```powershell
+python scripts/corpus/build_tiers.py
+```
+
 ## Windows PowerShell에서 처음부터 빌드
 
 `connectedhomeip`와 이 프로젝트를 같은 workspace 아래에 별도로 둔다.

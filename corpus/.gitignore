@@ -5,3 +5,14 @@
 /metadata/relations.jsonl
 /metadata/entities.jsonl
 /metadata/freeze_audit.json
+
+# Tier payloads and source-bearing derived records stay local.
+/tiers/*/raw/**
+!/tiers/*/raw/README.md
+/tiers/*/processed/**
+!/tiers/*/processed/README.md
+/tiers/*/metadata/relations.jsonl
+/tiers/*/metadata/entities.jsonl
+
+# Run logs are operational records, not deterministic Corpus artifacts.
+/runs/

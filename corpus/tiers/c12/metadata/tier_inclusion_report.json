@@ -1,0 +1,45 @@
+{
+  "checks": {
+    "association_inclusion": {
+      "removals": [],
+      "status": "pass"
+    },
+    "document_inclusion": {
+      "missing": [],
+      "status": "pass"
+    },
+    "normalized_content_preservation": {
+      "mismatches": [],
+      "scope_expanded_documents": [
+        "doc:112d302836b67ca64603e4d56cfe210bf28dbf63160eb76bd76f782c7a5cbff3",
+        "doc:15df38b2415c970870a6339ec3d680b434e75289b589a1227d07ca082b301626",
+        "doc:992e4db26f5fb69696d526686aebabe1cdc3d4850072e45b8978ca60d7c3d8d1",
+        "doc:b1a684a6c7f208360f84fbdba769856c63cacbf573d474b266dbd845da2fb4aa",
+        "doc:c74caaa9eb37dcd76157143100b29f0f97429d82147e89b425069799e3448f5f",
+        "doc:fdbdfd0f759dd60873493221153349fe8ddc8d7456fc68030924461b8325e310"
+      ],
+      "status": "pass"
+    },
+    "raw_content_preservation": {
+      "mismatches": [],
+      "status": "pass"
+    },
+    "semantic_relation_inclusion": {
+      "missing_count": 0,
+      "missing_keys": [],
+      "status": "pass"
+    },
+    "source_inclusion": {
+      "missing": [],
+      "status": "pass"
+    },
+    "strict_source_expansion": {
+      "new_source_count": 52,
+      "status": "pass"
+    }
+  },
+  "lower_root": "corpus/tiers/c6",
+  "schema_version": "1.0",
+  "status": "pass",
+  "upper_root": "corpus/tiers/c12"
+}

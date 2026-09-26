@@ -4,11 +4,12 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 import json
+import os
 from pathlib import Path
 import re
 import sys
 
-from corpus_utils import (CorpusError, Repository, Selection, SENTINELS, canonical, canonical_text,
+from corpus_utils import (CorpusError, PROJECT_ROOT, Repository, Selection, SENTINELS, canonical, canonical_text,
                           csv_bytes, digest, document_id, json_bytes, jsonl_bytes, pipeline_hash,
                           require, stable_id, writable_path, write_file)
 from normalize_corpus import (child_value, descendants, normalize, number, xml_tree)
@@ -268,7 +269,8 @@ class Graph:
             for n in descendants(root, 'classification'):
                 base = n['attrs'].get('baseCluster')
                 if base:
-                    require(base in {'Mode Base', 'Alarm Base', 'Label'}, f'Unexpected base dependency: {base}')
+                    require(base in {'Mode Base', 'Alarm Base', 'Label', 'Operational State'},
+                            f'Unexpected base dependency: {base}')
                     self.add('derives_cluster_base', cl, entity('cluster_base', base), spec)
         for pid, product in self.s.products.items():
             path = product['definition_path']
@@ -349,7 +351,7 @@ class Build:
             self.documents.append(dict(document_id=row['document_id'], snapshot_id=s.snapshot_id,
                                        text=doc['text'], metadata=metadata, source_spans=doc['source_spans']))
         self.entities, self.relations = Graph(s).build()
-        self.snapshot = dict(snapshot_id=s.snapshot_id, corpus_version='0.1', frozen=False, commit_hash=s.repo.head,
+        self.snapshot = dict(snapshot_id=s.snapshot_id, corpus_version=s.corpus_version, frozen=False, commit_hash=s.repo.head,
                              origin=s.repo.remote, branch_observed=s.repo.branch, scope_hash=s.scope_hash,
                              coverage_hash=s.coverage_hash, pipeline_hash=pipeline_hash(), source_id='connectedhomeip',
                              raw_byte_origin='Git committed blob; no checkout newline conversion',
@@ -370,7 +372,8 @@ class Build:
                     grouping_policy='files may count for multiple devices/clusters; context-only files can have no binding',
                     raw_byte_size=sum(len(s.repo.read(p)) for p in s.files),
                     normalized_character_count=sum(len(d['text']) for d in self.documents),
-                    expected_unique_clusters=23, extracted_unique_clusters=len({c for r in self.manifest for c in r['clusters']}),
+                    expected_unique_clusters=len(s.clusters),
+                    extracted_unique_clusters=len({c for r in self.manifest for c in r['clusters']}),
                     missing=[r['coverage_id'] for r in s.included if r['status'] == 'missing'],
                     not_applicable=[r['coverage_id'] for r in s.coverage if r['status'] == 'not_applicable'],
                     missing_source_files=[], unexpected=[], token_count=None, tokenizer_status='pending model/tokenizer decision')
@@ -400,24 +403,39 @@ class Build:
 
 def parser():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--source-repo', required=True)
-    p.add_argument('--scope', required=True)
-    p.add_argument('--output', required=True)
-    p.add_argument('--snapshot', required=True)
+    p.add_argument('--source-repo')
+    p.add_argument('--corpus-root', help='Tier root containing finalized scope.json and coverage_matrix.csv')
+    p.add_argument('--scope')
+    p.add_argument('--output')
+    p.add_argument('--snapshot')
     group = p.add_mutually_exclusive_group()
     group.add_argument('--dry-run', action='store_true')
     group.add_argument('--validate-only', action='store_true')
     return p
 
 
+def resolve_paths(args):
+    source_repo = args.source_repo or os.environ.get('CONNECTEDHOMEIP_PATH', '').strip()
+    require(bool(source_repo), '--source-repo or CONNECTEDHOMEIP_PATH is required')
+    explicit = [args.scope, args.output, args.snapshot]
+    if args.corpus_root:
+        require(not any(explicit), '--corpus-root cannot be combined with --scope, --output, or --snapshot')
+        root = Path(args.corpus_root).resolve()
+        require(root.is_relative_to(PROJECT_ROOT), f'Corpus root must stay in current project: {root}')
+        return source_repo, root / 'scope.json', root / 'raw', root / 'metadata/snapshot.json'
+    require(all(explicit), '--scope, --output, and --snapshot are required without --corpus-root')
+    return source_repo, Path(args.scope), Path(args.output), Path(args.snapshot)
+
+
 def main():
     args = parser().parse_args()
     try:
-        repository = Repository(args.source_repo)
-        selection = Selection(repository, args.scope)
+        source_repo, scope, output, snapshot = resolve_paths(args)
+        repository = Repository(source_repo)
+        selection = Selection(repository, scope)
         if args.validate_only:
             from validate_corpus import validate
-            report = validate(selection, args.output, args.snapshot, rebuild=True)
+            report = validate(selection, output, snapshot, rebuild=True)
             print(json.dumps(report, indent=2, ensure_ascii=True))
             return 1 if report['status'] == 'fail' else 0
         build = Build(selection)
@@ -425,9 +443,9 @@ def main():
         if args.dry_run:
             repository.verify()
             return 0
-        build.write(args.output, args.snapshot)
+        build.write(output, snapshot)
         from validate_corpus import validate
-        report = validate(selection, args.output, args.snapshot, rebuild=True)
+        report = validate(selection, output, snapshot, rebuild=True)
         print(json.dumps(dict(validation=report['status'], checks=report['checks']), indent=2, ensure_ascii=True))
         return 1 if report['status'] == 'fail' else 0
     except (CorpusError, OSError, ValueError, KeyError, StopIteration) as exc:

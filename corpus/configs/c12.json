@@ -1,0 +1,34 @@
+{
+  "add_product_families": [
+    {
+      "device_types": [124],
+      "name": "Laundry Dryer"
+    },
+    {
+      "device_types": [125],
+      "name": "Humidity Conditioner"
+    },
+    {
+      "device_types": [121],
+      "name": "Microwave Oven"
+    },
+    {
+      "device_types": [120, 119],
+      "name": "Cooktop"
+    },
+    {
+      "device_types": [122],
+      "name": "Extractor Hood"
+    },
+    {
+      "device_types": [1295],
+      "name": "Water Heater"
+    }
+  ],
+  "inherits": "c6",
+  "corpus_version": "0.1-c12",
+  "finalized_on": "2026-09-25",
+  "schema_version": "1.0",
+  "snapshot_namespace": "corpus-c12",
+  "tier": "c12"
+}

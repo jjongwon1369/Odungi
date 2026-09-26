@@ -29,6 +29,24 @@ def canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+RELATION_SEMANTIC_FIELDS = (
+    "relation_type",
+    "source_entity",
+    "target_entity",
+    "document_id",
+    "role",
+    "requirement",
+    "requirement_raw",
+    "condition",
+    "assertion_scope",
+)
+
+
+def relation_semantic_key(relation):
+    """Return the stable, tier-independent identity of a relation assertion."""
+    return canonical({field: relation.get(field) for field in RELATION_SEMANTIC_FIELDS})
+
+
 def digest(data):
     return hashlib.sha256(data).hexdigest()
 
@@ -77,7 +95,16 @@ def csv_bytes(rows):
 
 
 def pipeline_hash():
-    files = sorted(Path(__file__).parent.glob("*.py"))
+    # Only code that can change extracted/normalized corpus bytes belongs in the
+    # snapshot fingerprint.  Orchestration and reporting helpers must not make
+    # an otherwise identical corpus stale merely because their CLI changes.
+    pipeline_files = (
+        "corpus_utils.py",
+        "extract_corpus.py",
+        "normalize_corpus.py",
+        "validate_corpus.py",
+    )
+    files = [Path(__file__).parent / name for name in pipeline_files]
     return digest(b"".join(p.name.encode() + b"\0" + p.read_bytes() for p in files))
 
 
@@ -166,8 +193,8 @@ class Selection:
         self.products = {int(p["id"], 0): p for p in self.scope["products"]}
         self.clusters = {int(c["cluster_id"], 0): c for c in self.scope["clusters"]}
         expected = self.scope["accepted_scope_counts"]
-        require(len(self.clusters) == expected["unique_cluster_ids"] == 23, "Expected exactly 23 clusters")
-        require(len(self.products) == expected["official_device_type_ids"] == 4, "Expected four Device Type IDs")
+        require(len(self.clusters) == expected["unique_cluster_ids"], "Scope cluster count mismatch")
+        require(len(self.products) == expected["official_device_type_ids"], "Scope Device Type count mismatch")
         cluster_rows = [r for r in self.included if r["relation_type"] == "requires_cluster"]
         require(len(cluster_rows) == expected["included_cluster_relations"], "Coverage row count mismatch")
         require({int(r["cluster_id"], 0) for r in cluster_rows} == set(self.clusters), "Scope/coverage cluster mismatch")
@@ -223,7 +250,13 @@ class Selection:
         repository.read_many(self.files)
         self.scope_hash = digest(self.scope_path.read_bytes())
         self.coverage_hash = digest(self.coverage_path.read_bytes())
-        self.snapshot_id = stable_id("corpus-v0.1", [repository.head, self.scope_hash, self.coverage_hash, pipeline_hash()])
+        self.corpus_version = str(self.scope.get("corpus_version", "0.1"))
+        self.snapshot_namespace = str(self.scope.get("snapshot_namespace", "corpus-v0.1"))
+        require(bool(self.snapshot_namespace), "Empty snapshot namespace")
+        self.snapshot_id = stable_id(
+            self.snapshot_namespace,
+            [repository.head, self.scope_hash, self.coverage_hash, pipeline_hash()],
+        )
 
     def add(self, path, role, kind, reason):
         relative_path(path)
