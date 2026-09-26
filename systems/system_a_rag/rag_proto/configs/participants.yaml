@@ -1,18 +1,22 @@
-# 참가자 LLM 7종 — 9/24 회의 확정 (Odungi meetings/2026-09-24.md)
-# 답변 레코드의 model 필드에는 아래 model 값(실제 API 모델 ID)이 그대로 기록된다.
+# 참가자 LLM 7종 — 9/24 회의 확정, 9/26 멘토님께 보낸 API 예산 요청으로 최종 확인
+#   (Odungi meetings/2026-09-24.md, 멘토 요청 메시지 "2. 본실험 참가자 LLM API")
+# 답변 레코드의 model 필드에는 아래 model 값이 그대로 기록된다.
 # System C(LLM Wiki)와 model 표기가 같아야 논문 표를 합칠 수 있으니 정채희님과 맞출 것.
 #
 # model 이 "TODO"로 시작하면 run_eval 이 실행 전에 거부한다(가짜 모드 제외).
 # 키는 api_key_env 에 적힌 환경변수(.env 가능)에서 읽는다.
 #
+# 엔드포인트: base_url(주소 직접) → base_url_env(주소가 든 환경변수 이름) → 제공자 공식 주소.
+#   범용 OPENAI_BASE_URL / ANTHROPIC_BASE_URL 은 일부러 읽지 않는다. 개발 중 쓰던 Azure
+#   게이트웨이는 이동수님 쪽 테스트용(카톡 9/23 13:36 "쓴만큼 내는거임", 13:42 "테스트용으로")이라,
+#   그 주소가 .env에 남아 있으면 본실험 호출이 그리로 과금될 수 있기 때문이다.
+#   멘토님이 주실 엔드포인트가 모델 7개 공용 주소 하나라면, 각 항목에
+#   base_url_env: MENTOR_BASE_URL 을 넣고(필요하면 provider도 openai_compatible로) .env에 주소를 둔다.
+#
 # max_tokens: thinking/추론 토큰도 여기에 포함되는 모델이 많아 2048이면 본문 없이 잘린다.
 # temperature: null 이면 아예 보내지 않는다. Anthropic 쪽은 보내면 400이라 항상 생략된다.
 # effort: Anthropic 전용. 비우면 모델 기본값(Opus 5.5는 medium, Sonnet 5는 high).
 #   출처: Anthropic API 레퍼런스. 팀 자료엔 effort 언급 없음 → 고정 여부 팀 결정 필요.
-#
-# provider: openai 항목은 OPENAI_BASE_URL 환경변수가 있으면 그 주소로 간다(SDK 기본 동작).
-#   팀은 Azure OpenAI 게이트웨이를 쓴다 — 출처: Odungi feature/llm-wiki-compiler
-#   systems/system_c_llm_wiki/CLAUDE.md 105줄, agent/run_agent.py 119~121줄.
 #
 # [미결] System C는 temperature·max_tokens를 보내지 않는다(run_agent.py 270~275줄).
 #   A/B/C 조건을 맞추려면 정채희님과 합의 후 여기서 통일할 것.
@@ -22,36 +26,34 @@ defaults:
 
 participants:
   # --- 초저가
-  # [미결] 출처가 충돌해 실행을 막아둠. 확인 후 실제 ID로 바꿀 것.
-  #   gpt-6-luna   : meetings/2026-09-24.md 173·196줄, benchmark/answer_format.md 12줄
-  #   gpt-5.6-luna : system_c_llm_wiki/CLAUDE.md 26줄("System A/B/C가 반드시 동일 모델"),
-  #                  agent/run_agent.py 41줄, 위키 34쪽 compiled_by
-  - model: TODO-gpt-6-luna-or-gpt-5.6-luna
+  # gpt-5.6-luna는 위키 컴파일 모델이지 참가자가 아니다
+  #   (멘토 요청 "현재 저희 위키는 저가 모델(gpt-5.6-luna)로 컴파일된 상태").
+  - model: gpt-6-luna
     provider: openai
 
   # --- 저가
-  # DeepSeek·Kimi는 팀 자료에 API ID·base_url 근거가 없다. 아래 base_url은 작성자
-  # 배경지식이라 미검증 — 결제 계정 기준으로 확인할 것.
-  - model: TODO-deepseek-v4-flash    # TODO: DeepSeek 콘솔에서 정확한 모델 ID 확인
+  # DeepSeek·Kimi는 팀 자료에 API ID·base_url 근거가 없다(견적표는 카톡에 사진으로만 있음).
+  # 아래 base_url은 작성자 배경지식이라 미검증 — 멘토님이 주실 엔드포인트 기준으로 바꿀 것.
+  - model: TODO-deepseek-v4-flash    # TODO: 정확한 모델 ID 확인
     provider: openai_compatible
     base_url: https://api.deepseek.com
     api_key_env: DEEPSEEK_API_KEY
 
-  - model: TODO-kimi-k3              # TODO: Moonshot 콘솔에서 정확한 모델 ID 확인
+  - model: TODO-kimi-k3              # TODO: 정확한 모델 ID 확인
     provider: openai_compatible
-    base_url: https://api.moonshot.ai/v1   # TODO 확인: 결제 계정이 국제판(.ai)인지 중국판(.cn)인지
+    base_url: https://api.moonshot.ai/v1   # TODO 확인: 국제판(.ai)인지 중국판(.cn)인지
     api_key_env: MOONSHOT_API_KEY
 
   # --- 중간
   - model: claude-sonnet-5
     provider: anthropic
 
-  - model: gpt-6-sol                 # TODO 확인
+  - model: gpt-6-sol
     provider: openai
 
   # --- 고급
   - model: claude-opus-5-5
     provider: anthropic
 
-  - model: gpt-5.6-sol               # TODO 확인
+  - model: gpt-5.6-sol
     provider: openai

@@ -193,6 +193,7 @@ class AnthropicClient:
         max_tokens: int,
         effort: str | None = None,
         api_key_env: str = "ANTHROPIC_API_KEY",
+        base_url: str | None = None,
         max_retries: int = 5,
     ):
         import anthropic
@@ -201,7 +202,7 @@ class AnthropicClient:
         self.max_tokens = max_tokens
         self.effort = effort  # None이면 모델 기본값(Opus 5.5는 medium, Sonnet 5는 high)
         self.client = anthropic.Anthropic(
-            api_key=os.environ.get(api_key_env), max_retries=max_retries
+            api_key=os.environ.get(api_key_env), base_url=base_url, max_retries=max_retries
         )
 
     def complete(self, system: str, prompt: str) -> tuple[str, TokenUsage]:
@@ -257,6 +258,30 @@ class FakeLLM:
         )
 
 
+OFFICIAL_BASE_URLS = {
+    "openai": "https://api.openai.com/v1",
+    "anthropic": "https://api.anthropic.com",
+}
+
+
+def resolve_base_url(participant: dict) -> str | None:
+    """
+    참가자 엔드포인트를 명시적으로 정한다: base_url → base_url_env가 가리키는 환경변수
+    → 제공자 공식 주소. 범용 OPENAI_BASE_URL/ANTHROPIC_BASE_URL은 일부러 읽지 않는다.
+    SDK는 주소를 안 넘기면 그 변수를 조용히 읽는데, 거기엔 개발용 테스트 게이트웨이
+    (이동수님 쪽 과금) 주소가 들어 있을 수 있어 본실험 호출이 그리로 샌다.
+    """
+    if participant.get("base_url"):
+        return participant["base_url"]
+    env_name = participant.get("base_url_env")
+    if env_name:
+        value = os.environ.get(env_name)
+        if not value:
+            raise ValueError(f"{participant['model']}: base_url_env={env_name} 환경변수가 비어 있습니다")
+        return value
+    return OFFICIAL_BASE_URLS.get(participant["provider"])
+
+
 def make_client(cfg: Config, fake: bool = False, participant: dict | None = None) -> LLMClient:
     """
     participant가 없으면 pipeline.yaml의 generation 설정으로 OpenAI 클라이언트를 만든다
@@ -274,19 +299,23 @@ def make_client(cfg: Config, fake: bool = False, participant: dict | None = None
 
     provider = participant["provider"]
     max_tokens = participant.get("max_tokens", gen.get("max_tokens", 2048))
+    base_url = resolve_base_url(participant)
     if provider == "anthropic":
         return AnthropicClient(
             participant["model"],
             max_tokens,
             effort=participant.get("effort"),
             api_key_env=participant.get("api_key_env", "ANTHROPIC_API_KEY"),
+            base_url=base_url,
         )
     if provider in ("openai", "openai_compatible"):
+        if base_url is None:
+            raise ValueError(f"{participant['model']}: openai_compatible은 base_url 또는 base_url_env가 필요합니다")
         return OpenAIClient(
             participant["model"],
             max_tokens,
             temperature=participant.get("temperature", gen.get("temperature", 0.0)),
-            base_url=participant.get("base_url"),
+            base_url=base_url,
             api_key_env=participant.get("api_key_env", "OPENAI_API_KEY"),
         )
     raise ValueError(f"알 수 없는 provider: {provider!r} ({participant['model']})")
