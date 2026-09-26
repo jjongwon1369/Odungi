@@ -29,7 +29,14 @@ from .ask import Pipeline
 from .check_queries import load_queries
 from .config import load
 from .s6_generate import ABSTAIN_PHRASE
-from .schema import AnswerRecord, EvalQuery, QueryTier, find_dangling_citations
+from .schema import (
+    AnswerRecord,
+    EvalQuery,
+    QueryMode,
+    QueryTier,
+    SystemName,
+    find_dangling_citations,
+)
 
 RUNS_DIR = Path("runs")
 
@@ -79,19 +86,43 @@ def score_identifiers(query: EvalQuery, record: AnswerRecord) -> dict:
     }
 
 
-def run(pipeline: Pipeline, queries: list[EvalQuery], pattern: str) -> list[dict]:
+def _error_record(pipeline: Pipeline, q: EvalQuery, exc: Exception, run: int) -> AnswerRecord:
+    """
+    실패한 문항도 answers.jsonl에 한 줄 남긴다(박종원 answer_format.md 요구사항).
+    이전엔 record=None으로 두고 write_run()이 통째로 건너뛰어 실패 문항이
+    채점 대상에서 조용히 사라졌다.
+    """
+    cfg = pipeline.cfg
+    return AnswerRecord(
+        qid=q.qid,
+        model=getattr(pipeline.client, "name", None),
+        run=run,
+        system=SystemName.RAG,
+        query_mode=QueryMode(cfg.pipeline["query"]["mode"]),
+        question=q.question,
+        answer="",
+        corpus_commit=cfg.commit,
+        corpus_phase=cfg.phase,
+        corpus_snapshot=cfg.corpus_snapshot,
+        corpus_version=cfg.corpus_version,
+        config_hash=cfg.config_hash,
+        error=f"{type(exc).__name__}: {exc}",
+    )
+
+
+def run(pipeline: Pipeline, queries: list[EvalQuery], pattern: str, run_no: int = 1) -> list[dict]:
     rows: list[dict] = []
     for i, q in enumerate(queries, 1):
         print(f"[{i}/{len(queries)}] {q.qid} ({q.tier.value}) ...", end="", flush=True)
         started = time.perf_counter()
         try:
-            record = pipeline.ask(q.question, qid=q.qid)
+            record = pipeline.ask(q.question, qid=q.qid, run=run_no)
         except Exception as exc:  # 한 문항 실패가 전체를 멈추면 안 된다
             print(f" 실패: {type(exc).__name__}")
             rows.append(
                 {
                     "query": q.model_dump(mode="json"),
-                    "record": None,
+                    "record": _error_record(pipeline, q, exc, run_no).model_dump(mode="json"),
                     "eval": {"crashed": True, "error": traceback.format_exc(limit=2)},
                 }
             )

@@ -56,7 +56,7 @@ class Pipeline:
     def fake(self) -> bool:
         return self.fake_retrieval or self.fake_llm
 
-    def ask(self, question: str, qid: str = "ad-hoc") -> AnswerRecord:
+    def ask(self, question: str, qid: str = "ad-hoc", run: int = 1) -> AnswerRecord:
         gen_cfg = self.cfg.pipeline["generation"]
         id_cfg = self.cfg.pipeline["identifiers"]
 
@@ -69,6 +69,8 @@ class Pipeline:
 
         record = AnswerRecord(
             qid=qid,
+            model=self.client.name,
+            run=run,
             system=SystemName.RAG,
             query_mode=QueryMode(self.cfg.pipeline["query"]["mode"]),
             question=question,

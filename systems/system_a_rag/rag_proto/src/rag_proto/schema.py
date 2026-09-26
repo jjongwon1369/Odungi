@@ -180,6 +180,8 @@ class AnswerRecord(BaseModel):
     """
     schema_version: str = SCHEMA_VERSION
     qid: str
+    model: str | None = None  # 참가자 LLM 구분 (예: "gpt-6-luna"). benchmark/answer_format.md
+    run: int = 1              # 반복 회차 (1~3). benchmark/answer_format.md
     system: SystemName
     query_mode: QueryMode = QueryMode.SIMPLE
     question: str
