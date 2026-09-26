@@ -347,6 +347,8 @@ def smoke_test(cfg, participants: list[dict]) -> int:
             client = make_client(cfg, participant=p)
             text, usage = client.complete("Reply with exactly: OK", "ping")
             print(f"  OK    {p['model']:<28} {text.strip()[:30]!r}  tokens={usage.model_dump()}")
+            # 제공자·게이트웨이마다 usage 필드 의미가 달라 4열 매핑이 맞는지 원본으로 확인한다
+            print(f"        원본 usage: {getattr(client, 'last_raw_usage', None)}")
         except Exception as exc:
             failures += 1
             print(f"  실패  {p['model']:<28} {type(exc).__name__}: {exc}")

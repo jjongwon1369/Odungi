@@ -8,16 +8,30 @@
 # max_tokens: thinking/추론 토큰도 여기에 포함되는 모델이 많아 2048이면 본문 없이 잘린다.
 # temperature: null 이면 아예 보내지 않는다. Anthropic 쪽은 보내면 400이라 항상 생략된다.
 # effort: Anthropic 전용. 비우면 모델 기본값(Opus 5.5는 medium, Sonnet 5는 high).
+#   출처: Anthropic API 레퍼런스. 팀 자료엔 effort 언급 없음 → 고정 여부 팀 결정 필요.
+#
+# provider: openai 항목은 OPENAI_BASE_URL 환경변수가 있으면 그 주소로 간다(SDK 기본 동작).
+#   팀은 Azure OpenAI 게이트웨이를 쓴다 — 출처: Odungi feature/llm-wiki-compiler
+#   systems/system_c_llm_wiki/CLAUDE.md 105줄, agent/run_agent.py 119~121줄.
+#
+# [미결] System C는 temperature·max_tokens를 보내지 않는다(run_agent.py 270~275줄).
+#   A/B/C 조건을 맞추려면 정채희님과 합의 후 여기서 통일할 것.
 
 defaults:
   max_tokens: 16000
 
 participants:
   # --- 초저가
-  - model: gpt-6-luna                # TODO 확인: API 모델 ID가 이 표기 그대로인지
+  # [미결] 출처가 충돌해 실행을 막아둠. 확인 후 실제 ID로 바꿀 것.
+  #   gpt-6-luna   : meetings/2026-09-24.md 173·196줄, benchmark/answer_format.md 12줄
+  #   gpt-5.6-luna : system_c_llm_wiki/CLAUDE.md 26줄("System A/B/C가 반드시 동일 모델"),
+  #                  agent/run_agent.py 41줄, 위키 34쪽 compiled_by
+  - model: TODO-gpt-6-luna-or-gpt-5.6-luna
     provider: openai
 
   # --- 저가
+  # DeepSeek·Kimi는 팀 자료에 API ID·base_url 근거가 없다. 아래 base_url은 작성자
+  # 배경지식이라 미검증 — 결제 계정 기준으로 확인할 것.
   - model: TODO-deepseek-v4-flash    # TODO: DeepSeek 콘솔에서 정확한 모델 ID 확인
     provider: openai_compatible
     base_url: https://api.deepseek.com

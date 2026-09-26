@@ -115,9 +115,11 @@ class OpenAIClient:
     두 번 계산되어 비용이 부풀려진다. 베이스라인 논문이 판정을 포기한 것과
     같은 종류의 오류다.
 
-    또한 OpenAI는 캐시 *쓰기* 토큰을 따로 보고하지 않으므로
-    cache_creation은 항상 0으로 남는다. 최신 모델에서 캐시 쓰기에
-    추가 요율이 붙으므로, 비용을 엄밀히 따질 때는 이 한계를 명시할 것.
+    OpenAI 본가는 캐시 *쓰기* 토큰을 보고하지 않지만, 팀이 쓰는 Azure OpenAI
+    게이트웨이는 cache_creation_input_tokens 확장 필드로 보고한다(System C
+    run_agent.py도 이 필드를 읽는다). 있으면 cache_creation에 넣고, 없으면 0이다.
+    prompt_tokens가 캐시 읽기·쓰기를 모두 포함한다는 OpenAI 관례를 가정해
+    둘 다 빼서 uncached를 구한다 — 이 가정은 --smoke의 원본 usage 출력으로 확인할 것.
     """
 
     def __init__(
@@ -158,11 +160,13 @@ class OpenAIClient:
         text = choice.message.content or ""
 
         u = resp.usage
+        self.last_raw_usage = u
         prompt_tokens = getattr(u, "prompt_tokens", 0) or 0
         cached = _openai_cached_tokens(u)
+        created = getattr(u, "cache_creation_input_tokens", 0) or 0  # 게이트웨이 확장 필드
         usage = TokenUsage(
-            uncached_input=max(prompt_tokens - cached, 0),
-            cache_creation=0,  # OpenAI는 캐시 쓰기 토큰을 보고하지 않는다
+            uncached_input=max(prompt_tokens - cached - created, 0),
+            cache_creation=created,
             cache_read=cached,
             output=getattr(u, "completion_tokens", 0) or 0,
         )
@@ -214,6 +218,7 @@ class AnthropicClient:
         text = "".join(b.text for b in resp.content if b.type == "text")
 
         u = resp.usage
+        self.last_raw_usage = u
         usage = TokenUsage(
             uncached_input=u.input_tokens or 0,
             cache_creation=u.cache_creation_input_tokens or 0,
