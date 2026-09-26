@@ -16,14 +16,16 @@ from typing import Protocol
 
 
 class Decomposer(Protocol):
-    def decompose(self, question: str, max_subq: int) -> list[str]: ...
+    def decompose(self, question: str, max_subq: int) -> tuple[list[str], object | None]:
+        """(하위질의 목록, 분해 호출의 TokenUsage 또는 None)"""
+        ...
 
 
 class FakeDecomposer:
     """API 키 없을 때 배관 확인용. 원 질문을 그대로 하위질의 1개로 돌려준다."""
 
-    def decompose(self, question: str, max_subq: int) -> list[str]:
-        return [question]
+    def decompose(self, question: str, max_subq: int) -> tuple[list[str], object | None]:
+        return [question], None
 
 
 _SYSTEM_PROMPT = (
@@ -40,17 +42,18 @@ class LLMDecomposer:
     def __init__(self, client):
         self.client = client
 
-    def decompose(self, question: str, max_subq: int) -> list[str]:
-        prompt = f"{_SYSTEM_PROMPT}\n\n최대 하위질의 수: {max_subq}\n\n질문: {question}"
-        text, _usage = self.client.complete(_SYSTEM_PROMPT, prompt)
+    def decompose(self, question: str, max_subq: int) -> tuple[list[str], object | None]:
+        prompt = f"최대 하위질의 수: {max_subq}\n\n질문: {question}"
+        # 분해 호출도 참가자 LLM 비용이다. usage를 버리면 System B 비용이 과소 계상된다.
+        text, usage = self.client.complete(_SYSTEM_PROMPT, prompt)
         try:
             subqs = json.loads(text)
             if isinstance(subqs, list) and subqs and all(isinstance(s, str) and s.strip() for s in subqs):
-                return subqs[:max_subq]
+                return subqs[:max_subq], usage
         except (json.JSONDecodeError, TypeError):
             pass
         # 파싱 실패 시 원 질문 그대로 — 검색 자체가 죽으면 안 된다.
-        return [question]
+        return [question], usage
 
 
 def make_decomposer(fake: bool, client=None) -> Decomposer:

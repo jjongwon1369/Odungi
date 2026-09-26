@@ -44,6 +44,7 @@ from rag_proto.schema import (  # noqa: E402
     QueryMode,
     RetrievedCandidates,
     SystemName,
+    TokenUsage,
     extract_identifiers,
     find_dangling_citations,
 )
@@ -69,19 +70,39 @@ def merge_candidates(per_subq_candidates: list[list[Candidate]], top_k: int) -> 
     return ranked[:top_k]
 
 
+def add_usage(a: TokenUsage, b: TokenUsage | None) -> TokenUsage:
+    """호출 여러 번의 토큰을 열별로 더한다. 4열은 각자 유지 — 열끼리 합치지 않는다."""
+    if b is None:
+        return a
+    return TokenUsage(**{k: getattr(a, k) + getattr(b, k) for k in TokenUsage.model_fields})
+
+
 class DecompositionPipeline:
-    def __init__(self, cfg: Config, fake: bool = False, fake_llm: bool | None = None):
+    def __init__(
+        self,
+        cfg: Config,
+        fake: bool = False,
+        fake_llm: bool | None = None,
+        retriever=None,
+        client=None,
+    ):
+        # retriever/client를 넘기면 그대로 쓴다(배치 실행에서 CachedRetriever 공유).
+        # 분해 LLM은 생성과 같은 참가자 LLM을 쓴다 — 모델 변수를 한 시스템 안에서 섞지 않는다.
         self.cfg = cfg
         self.fake_retrieval = fake
         self.fake_llm = fake if fake_llm is None else fake_llm
-        self.retriever = Retriever(cfg, fake=self.fake_retrieval)
-        self.client = make_client(cfg, fake=self.fake_llm)
+        self.retriever = retriever or Retriever(cfg, fake=self.fake_retrieval)
+        self.client = client or make_client(cfg, fake=self.fake_llm)
         self.decomposer = make_decomposer(fake=self.fake_llm, client=None if self.fake_llm else self.client)
         self.last_subqueries: list[str] = []
 
     @property
     def fake(self) -> bool:
         return self.fake_retrieval or self.fake_llm
+
+    @property
+    def query_mode(self) -> QueryMode:
+        return QueryMode.DECOMPOSED
 
     def ask(self, question: str, qid: str = "ad-hoc", run: int = 1) -> AnswerRecord:
         gen_cfg = self.cfg.pipeline["generation"]
@@ -90,25 +111,31 @@ class DecompositionPipeline:
         rerank_top_k = self.cfg.pipeline["retrieval"]["rerank_top_k"]
 
         t0 = time.perf_counter()
-        subqueries = self.decomposer.decompose(question, max_subq)
+        subqueries, decompose_usage = self.decomposer.decompose(question, max_subq)
+        decompose_ms = int((time.perf_counter() - t0) * 1000)
         self.last_subqueries = subqueries
 
         bm25_all: list[str] = []
         vector_all: list[str] = []
         fused_all: list[str] = []
         per_subq_candidates: list[list[Candidate]] = []
+        retrieve_ms = 0
         for subq in subqueries:
             result = self.retriever.retrieve(subq)
+            # 캐시로 재사용돼도 실제 검색 시간을 합산한다(하위질의는 순차 검색)
+            retrieve_ms += result.elapsed_ms
             bm25_all.extend(result.bm25)
             vector_all.extend(result.vector)
             fused_all.extend(result.fused)
             per_subq_candidates.append(result.candidates)
 
         candidates = merge_candidates(per_subq_candidates, rerank_top_k)
-        t1 = time.perf_counter()
 
-        answer, usage = generate(question, candidates, self.client)
-        t2 = time.perf_counter()
+        t1 = time.perf_counter()
+        answer, generate_usage = generate(question, candidates, self.client)
+        # LatencyMs엔 분해 칸이 없어(동결 스키마) 분해도 LLM 호출이므로 generate에 포함한다
+        generate_ms = decompose_ms + int((time.perf_counter() - t1) * 1000)
+        usage = add_usage(generate_usage, decompose_usage)
 
         record = AnswerRecord(
             qid=qid,
@@ -132,9 +159,9 @@ class DecompositionPipeline:
                 answer, id_cfg["patterns"], id_cfg.get("stopwords", [])
             ),
             latency_ms=LatencyMs(
-                retrieve=int((t1 - t0) * 1000),
-                generate=int((t2 - t1) * 1000),
-                total=int((t2 - t0) * 1000),
+                retrieve=retrieve_ms,
+                generate=generate_ms,
+                total=retrieve_ms + generate_ms,
             ),
             tokens=usage,
             corpus_commit=self.cfg.commit,

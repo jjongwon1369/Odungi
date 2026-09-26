@@ -8,6 +8,10 @@
 |---|---|
 | `decomposition/` | `decompose.py` — 질문 → 하위질의 2~5개. `FakeDecomposer`(배관 확인용, API 키 없을 때) / `LLMDecomposer`(실제 분해) |
 | `pipeline/` | `ask_decomposed.py` — 하위질의별 검색 → `merge_candidates()`로 병합 → 생성. `AnswerRecord`는 System A와 **완전히 같은 스키마**, `query_mode: "decomposed"`로만 구분 |
+| `pipeline/` | `run_batch_decomposed.py` — 본실험 배치(참가자 LLM × 반복 × 문항). System A의 배치 러너를 그대로 쓰고 파이프라인만 교체 |
+
+토큰은 **분해 호출 + 생성 호출**을 열별로 더해 기록한다(분해도 참가자 LLM 비용이다).
+분해 LLM은 생성과 같은 참가자 LLM을 쓴다.
 
 ## 실행
 
@@ -18,6 +22,11 @@
 cd systems/system_a_rag/rag_proto && source .venv/bin/activate
 python ../../system_b_decomposition_rag/pipeline/ask_decomposed.py "질문"
 python ../../system_b_decomposition_rag/pipeline/ask_decomposed.py "질문" --fake-llm   # 검색은 실제, 분해·생성만 가짜
+
+# 본실험 (인자는 System A의 run_eval 배치와 동일)
+python ../../system_b_decomposition_rag/pipeline/run_batch_decomposed.py --smoke
+python ../../system_b_decomposition_rag/pipeline/run_batch_decomposed.py \
+    --participants all --runs 3 --questions ../../../benchmark/questions_v1.jsonl
 ```
 
 ## 병합 규칙
