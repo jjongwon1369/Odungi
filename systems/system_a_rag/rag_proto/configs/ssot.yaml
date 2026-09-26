@@ -1,0 +1,26 @@
+# SSOT (Single Source of Truth)
+# 명세서 §01 원칙 2: SSOT는 2단계로 적용한다. 지금은 Phase 2(integrated).
+#
+# v0.3 — 팀 저장소(Odungi)의 코퍼스 SSOT로 전환.
+#   근거: corpus/metadata/snapshot.json, corpus/CORPUS_V1.md §2
+#   개인 샘플(v1.4.2-branch, b9c05ca0)은 폐기한다. 비교 실험은 이 값으로만 한다.
+
+corpus:
+  repo: DS-J-L/connectedhomeip              # project-chip 포크. origin은 snapshot.json 참조
+  branch: master                            # 관찰 브랜치. 재현 기준은 아래 commit
+  commit: "1ac132b5ecd42cb6c78772f2576ed6f7fc814183"
+  data_model_baseline: "data_model/1.7"     # 개발 스냅샷. 배포 사양 아님 (scope.json baseline_policy)
+  spec_tag: "0.9-1.7-winter2027"
+
+  # 같은 commit에서 Device Type 3개 → 6개 → 12개 코퍼스가 갈라진다.
+  # commit만으로는 구분이 안 되므로 snapshot_id를 함께 기록한다.
+  corpus_version: "0.1"                     # v1.0 candidate. freeze_gate.json 기준
+  snapshot_id: "corpus-v0.1:ee88b47ac7a901be55e52cb8039314b740d312dbff6982eec65bc3af6a735680"
+  frozen: false                             # licensing_review / cross_review 미완
+
+phase: integrated
+owner: null
+
+spec_pdf:
+  enabled: false
+  documents: []

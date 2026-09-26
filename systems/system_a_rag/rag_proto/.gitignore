@@ -1,0 +1,16 @@
+data/raw/
+data/chroma/
+data/.embed_cache/
+data/*.jsonl
+data/*.npy
+data/embedding_ids.json
+runs/
+__pycache__/
+*.pyc
+
+# 질의셋은 버전 관리 대상이다
+!data/queries.jsonl
+
+# 팀 코퍼스 로컬 사본. corpus/.gitignore 와 동일 사유로 커밋 금지
+data/team/
+.env
