@@ -45,34 +45,47 @@ class Pipeline:
     차원이 색인과 달라 Chroma가 InvalidArgumentError를 낸다.
     """
 
-    def __init__(self, cfg: Config, fake: bool = False, fake_llm: bool | None = None):
+    def __init__(
+        self,
+        cfg: Config,
+        fake: bool = False,
+        fake_llm: bool | None = None,
+        retriever=None,
+        client=None,
+    ):
+        # retriever/client를 넘기면 그대로 쓴다. 배치 실행은 참가자 LLM마다 client만
+        # 바꾸고 CachedRetriever 하나를 공유해 검색을 재사용한다.
         self.cfg = cfg
         self.fake_retrieval = fake
         self.fake_llm = fake if fake_llm is None else fake_llm
-        self.retriever = Retriever(cfg, fake=self.fake_retrieval)
-        self.client = make_client(cfg, fake=self.fake_llm)
+        self.retriever = retriever or Retriever(cfg, fake=self.fake_retrieval)
+        self.client = client or make_client(cfg, fake=self.fake_llm)
 
     @property
     def fake(self) -> bool:
         return self.fake_retrieval or self.fake_llm
 
+    @property
+    def query_mode(self) -> QueryMode:
+        return QueryMode(self.cfg.pipeline["query"]["mode"])
+
     def ask(self, question: str, qid: str = "ad-hoc", run: int = 1) -> AnswerRecord:
         gen_cfg = self.cfg.pipeline["generation"]
         id_cfg = self.cfg.pipeline["identifiers"]
 
-        t0 = time.perf_counter()
         result = self.retriever.retrieve(question)
-        t1 = time.perf_counter()
 
+        t1 = time.perf_counter()
         answer, usage = generate(question, result.candidates, self.client)
         t2 = time.perf_counter()
+        generate_ms = int((t2 - t1) * 1000)
 
         record = AnswerRecord(
             qid=qid,
             model=self.client.name,
             run=run,
             system=SystemName.RAG,
-            query_mode=QueryMode(self.cfg.pipeline["query"]["mode"]),
+            query_mode=self.query_mode,
             question=question,
             answer=answer,
             citations=[
@@ -93,9 +106,9 @@ class Pipeline:
                 answer, id_cfg["patterns"], id_cfg.get("stopwords", [])
             ),
             latency_ms=LatencyMs(
-                retrieve=int((t1 - t0) * 1000),
-                generate=int((t2 - t1) * 1000),
-                total=int((t2 - t0) * 1000),
+                retrieve=result.elapsed_ms,
+                generate=generate_ms,
+                total=result.elapsed_ms + generate_ms,
             ),
             tokens=usage,
             corpus_commit=self.cfg.commit,

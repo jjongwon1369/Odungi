@@ -21,8 +21,10 @@ rag_proto.s5_retrieve — S5. 하이브리드 검색 + 재순위
 
 from __future__ import annotations
 
+import json
 import re
 import sys
+import time
 from dataclasses import dataclass, field
 
 from .config import Config, load
@@ -67,6 +69,9 @@ class RetrievalResult:
     fused: list[str]
     reranked: list[str]
     candidates: list[Candidate]
+    # 실제 검색에 걸린 시간. CachedRetriever가 결과를 재사용해도 이 값을 그대로
+    # 넘겨서, 답변 레코드의 검색 지연이 캐시 덕에 0ms로 찍히지 않게 한다.
+    elapsed_ms: int = 0
 
 
 def where_matches(metadata: dict, where: dict | None) -> bool:
@@ -207,6 +212,7 @@ class Retriever:
 
     def retrieve(self, query: str, where: dict | None = None) -> RetrievalResult:
         r = self.cfg.pipeline["retrieval"]
+        started = time.perf_counter()
 
         bm25_ids = self.bm25.search(query, r["bm25_k"], where=where)
 
@@ -243,7 +249,36 @@ class Retriever:
             fused=fused_ids,
             reranked=[c.chunk_id for c in candidates],
             candidates=candidates,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
         )
+
+
+class CachedRetriever:
+    """
+    같은 질의의 검색 결과를 재사용한다.
+
+    검색(BM25+벡터+재순위)은 결정적이라 참가자 LLM이나 반복 회차가 달라도 결과가
+    같다. 본실험은 7모델 × 3회라 캐시 없이 돌리면 같은 검색을 21번씩 반복하고,
+    이 노트북에선 재순위가 질의당 ~50초라 840건이면 ~12시간이 걸린다.
+    System B는 하위질의 문자열 단위로 재사용된다.
+    """
+
+    def __init__(self, retriever: "Retriever"):
+        self.retriever = retriever
+        self._cache: dict[tuple[str, str], RetrievalResult] = {}
+        self.hits = 0
+        self.misses = 0
+
+    def retrieve(self, query: str, where: dict | None = None) -> RetrievalResult:
+        key = (query, json.dumps(where, sort_keys=True, ensure_ascii=False) if where else "")
+        cached = self._cache.get(key)
+        if cached is not None:
+            self.hits += 1
+            return cached
+        self.misses += 1
+        result = self.retriever.retrieve(query, where=where)
+        self._cache[key] = result
+        return result
 
 
 def main() -> int:

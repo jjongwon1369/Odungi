@@ -1,0 +1,43 @@
+# 참가자 LLM 7종 — 9/24 회의 확정 (Odungi meetings/2026-09-24.md)
+# 답변 레코드의 model 필드에는 아래 model 값(실제 API 모델 ID)이 그대로 기록된다.
+# System C(LLM Wiki)와 model 표기가 같아야 논문 표를 합칠 수 있으니 정채희님과 맞출 것.
+#
+# model 이 "TODO"로 시작하면 run_eval 이 실행 전에 거부한다(가짜 모드 제외).
+# 키는 api_key_env 에 적힌 환경변수(.env 가능)에서 읽는다.
+#
+# max_tokens: thinking/추론 토큰도 여기에 포함되는 모델이 많아 2048이면 본문 없이 잘린다.
+# temperature: null 이면 아예 보내지 않는다. Anthropic 쪽은 보내면 400이라 항상 생략된다.
+# effort: Anthropic 전용. 비우면 모델 기본값(Opus 5.5는 medium, Sonnet 5는 high).
+
+defaults:
+  max_tokens: 16000
+
+participants:
+  # --- 초저가
+  - model: gpt-6-luna                # TODO 확인: API 모델 ID가 이 표기 그대로인지
+    provider: openai
+
+  # --- 저가
+  - model: TODO-deepseek-v4-flash    # TODO: DeepSeek 콘솔에서 정확한 모델 ID 확인
+    provider: openai_compatible
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+
+  - model: TODO-kimi-k3              # TODO: Moonshot 콘솔에서 정확한 모델 ID 확인
+    provider: openai_compatible
+    base_url: https://api.moonshot.ai/v1   # TODO 확인: 결제 계정이 국제판(.ai)인지 중국판(.cn)인지
+    api_key_env: MOONSHOT_API_KEY
+
+  # --- 중간
+  - model: claude-sonnet-5
+    provider: anthropic
+
+  - model: gpt-6-sol                 # TODO 확인
+    provider: openai
+
+  # --- 고급
+  - model: claude-opus-5-5
+    provider: anthropic
+
+  - model: gpt-5.6-sol               # TODO 확인
+    provider: openai

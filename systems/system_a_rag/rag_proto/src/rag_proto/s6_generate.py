@@ -73,10 +73,37 @@ class LLMClient(Protocol):
     def complete(self, system: str, prompt: str) -> tuple[str, TokenUsage]: ...
 
 
+class GenerationError(RuntimeError):
+    """답변을 쓸 수 없는 응답(거절, 토큰 상한으로 본문이 비어 있음 등).
+    run_eval이 잡아서 error 행으로 남긴다 — 빈 답변을 정상 답변처럼 채점하면 안 된다.
+    이미 과금된 호출이므로 usage를 함께 실어 error 행의 토큰 비용에 반영한다."""
+
+    def __init__(self, message: str, usage: TokenUsage | None = None):
+        super().__init__(message)
+        self.usage = usage or TokenUsage()
+
+
+def _openai_cached_tokens(u) -> int:
+    """
+    OpenAI 호환 API마다 캐시 적중 토큰을 보고하는 위치가 다르다.
+    OpenAI는 prompt_tokens_details.cached_tokens, DeepSeek는 prompt_cache_hit_tokens,
+    Moonshot(Kimi)은 최상위 cached_tokens. 못 찾으면 0 — 이 경우 캐시 적중분이
+    uncached_input으로 잡혀 비용이 과대 계상되니 smoke 단계에서 usage를 확인할 것.
+    """
+    details = getattr(u, "prompt_tokens_details", None)
+    for value in (
+        getattr(details, "cached_tokens", None) if details else None,
+        getattr(u, "prompt_cache_hit_tokens", None),
+        getattr(u, "cached_tokens", None),
+    ):
+        if value:
+            return int(value)
+    return 0
+
+
 class OpenAIClient:
     """
-    공식 SDK 사용. 모델 구조나 추론은 전부 API가 담당한다.
-    RAG와 LLM Wiki가 반드시 같은 모델을 써야 비교가 성립한다.
+    OpenAI 및 OpenAI 호환 엔드포인트(DeepSeek, Kimi 등 base_url만 다른 곳)용.
 
     토큰 4열 매핑 주의 — OpenAI와 Anthropic의 의미가 다르다.
 
@@ -93,38 +120,111 @@ class OpenAIClient:
     추가 요율이 붙으므로, 비용을 엄밀히 따질 때는 이 한계를 명시할 것.
     """
 
-    def __init__(self, cfg: Config):
+    def __init__(
+        self,
+        model: str,
+        max_tokens: int,
+        temperature: float | None,
+        base_url: str | None = None,
+        api_key_env: str = "OPENAI_API_KEY",
+        max_retries: int = 5,
+    ):
         from openai import OpenAI
 
-        gen = cfg.pipeline["generation"]
-        self.name = gen["model"]
-        self.max_tokens = gen.get("max_tokens", 2048)
-        self.temperature = gen.get("temperature", 0.0)
-        self.client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+        self.name = model
+        self.max_tokens = max_tokens
+        # 추론형 모델 일부는 기본값 외 temperature를 거부한다. None이면 아예 안 보낸다.
+        self.temperature = temperature
+        self.client = OpenAI(
+            api_key=os.environ.get(api_key_env),
+            base_url=base_url,
+            max_retries=max_retries,
+        )
 
     def complete(self, system: str, prompt: str) -> tuple[str, TokenUsage]:
+        kwargs = {}
+        if self.temperature is not None:
+            kwargs["temperature"] = self.temperature
         resp = self.client.chat.completions.create(
             model=self.name,
             max_completion_tokens=self.max_tokens,
-            temperature=self.temperature,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
             ],
+            **kwargs,
         )
-        text = resp.choices[0].message.content or ""
+        choice = resp.choices[0]
+        text = choice.message.content or ""
 
         u = resp.usage
         prompt_tokens = getattr(u, "prompt_tokens", 0) or 0
-        details = getattr(u, "prompt_tokens_details", None)
-        cached = getattr(details, "cached_tokens", 0) or 0 if details else 0
-
+        cached = _openai_cached_tokens(u)
         usage = TokenUsage(
             uncached_input=max(prompt_tokens - cached, 0),
             cache_creation=0,  # OpenAI는 캐시 쓰기 토큰을 보고하지 않는다
             cache_read=cached,
             output=getattr(u, "completion_tokens", 0) or 0,
         )
+        if not text.strip():
+            raise GenerationError(f"빈 답변 (finish_reason={choice.finish_reason})", usage)
+        return text, usage
+
+
+class AnthropicClient:
+    """
+    Claude(Sonnet 5, Opus 5.5 등)용.
+
+    - temperature/top_p/top_k를 보내면 400이다(Sonnet 5, Opus 5.5에서 샘플링
+      파라미터 제거). OpenAI 쪽과 조건을 맞추려고 0.0을 보내면 전 문항이 실패한다.
+    - thinking은 항상 켜져 있고(Opus 5.5는 끌 수 없음) thinking 토큰도 max_tokens에
+      포함된다. max_tokens가 작으면 본문 없이 잘린다 → 참가자 설정에서 넉넉히 준다.
+    - 응답 content에 thinking 블록이 섞여 오므로 text 블록만 모은다.
+    - usage는 이미 4열과 같은 의미다: input_tokens는 캐시분을 *제외*한 값.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        max_tokens: int,
+        effort: str | None = None,
+        api_key_env: str = "ANTHROPIC_API_KEY",
+        max_retries: int = 5,
+    ):
+        import anthropic
+
+        self.name = model
+        self.max_tokens = max_tokens
+        self.effort = effort  # None이면 모델 기본값(Opus 5.5는 medium, Sonnet 5는 high)
+        self.client = anthropic.Anthropic(
+            api_key=os.environ.get(api_key_env), max_retries=max_retries
+        )
+
+    def complete(self, system: str, prompt: str) -> tuple[str, TokenUsage]:
+        kwargs = {}
+        if self.effort:
+            kwargs["output_config"] = {"effort": self.effort}
+        resp = self.client.messages.create(
+            model=self.name,
+            max_tokens=self.max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+            **kwargs,
+        )
+        text = "".join(b.text for b in resp.content if b.type == "text")
+
+        u = resp.usage
+        usage = TokenUsage(
+            uncached_input=u.input_tokens or 0,
+            cache_creation=u.cache_creation_input_tokens or 0,
+            cache_read=u.cache_read_input_tokens or 0,
+            output=u.output_tokens or 0,
+        )
+        if resp.stop_reason == "refusal":
+            category = getattr(resp.stop_details, "category", None) if resp.stop_details else None
+            raise GenerationError(f"refusal (category={category})", usage)
+        if not text.strip():
+            raise GenerationError(f"빈 답변 (stop_reason={resp.stop_reason})", usage)
         return text, usage
 
 
@@ -134,7 +234,8 @@ class FakeLLM:
     답변 품질은 무의미하다. 절대 실험에 쓰지 말 것.
     """
 
-    name = "fake-llm"
+    def __init__(self, name: str = "fake-llm"):
+        self.name = name
 
     def complete(self, system: str, prompt: str) -> tuple[str, TokenUsage]:
         import re
@@ -151,8 +252,39 @@ class FakeLLM:
         )
 
 
-def make_client(cfg: Config, fake: bool = False) -> LLMClient:
-    return FakeLLM() if fake else OpenAIClient(cfg)
+def make_client(cfg: Config, fake: bool = False, participant: dict | None = None) -> LLMClient:
+    """
+    participant가 없으면 pipeline.yaml의 generation 설정으로 OpenAI 클라이언트를 만든다
+    (단일 질의 ask.py 경로). participant가 있으면 configs/participants.yaml 항목대로
+    제공자별 클라이언트를 만든다(본실험 배치 경로).
+    """
+    gen = cfg.pipeline["generation"]
+    if participant is None:
+        if fake:
+            return FakeLLM()
+        return OpenAIClient(gen["model"], gen.get("max_tokens", 2048), gen.get("temperature", 0.0))
+
+    if fake:
+        return FakeLLM(name=participant["model"])
+
+    provider = participant["provider"]
+    max_tokens = participant.get("max_tokens", gen.get("max_tokens", 2048))
+    if provider == "anthropic":
+        return AnthropicClient(
+            participant["model"],
+            max_tokens,
+            effort=participant.get("effort"),
+            api_key_env=participant.get("api_key_env", "ANTHROPIC_API_KEY"),
+        )
+    if provider in ("openai", "openai_compatible"):
+        return OpenAIClient(
+            participant["model"],
+            max_tokens,
+            temperature=participant.get("temperature", gen.get("temperature", 0.0)),
+            base_url=participant.get("base_url"),
+            api_key_env=participant.get("api_key_env", "OPENAI_API_KEY"),
+        )
+    raise ValueError(f"알 수 없는 provider: {provider!r} ({participant['model']})")
 
 
 def generate(

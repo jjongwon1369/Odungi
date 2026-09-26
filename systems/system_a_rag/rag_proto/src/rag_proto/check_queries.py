@@ -40,8 +40,23 @@ EXPECTED_TIERS = {
 
 
 def load_queries(path: Path = QUERIES_PATH) -> list[EvalQuery]:
+    """
+    두 형식을 모두 읽는다.
+      - data/queries.jsonl (개인 20문항): qid + gold 필드
+      - Odungi benchmark/questions_v1.jsonl (팀 40문항): query_id, gold 없음
+        (정답은 평가 담당이 따로 보관). qid에 query_id를 그대로 넣어야
+        채점 스크립트가 답변을 문항과 짝지을 수 있다.
+    """
+    queries: list[EvalQuery] = []
     with path.open(encoding="utf-8") as f:
-        return [EvalQuery(**json.loads(line)) for line in f if line.strip()]
+        for line in f:
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            if "qid" not in rec and "query_id" in rec:
+                rec["qid"] = rec.pop("query_id")
+            queries.append(EvalQuery(**rec))
+    return queries
 
 
 def load_corpus_index() -> tuple[set[str], set[str], str]:

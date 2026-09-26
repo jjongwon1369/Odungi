@@ -13,6 +13,14 @@ data/queries.jsonl → runs/<타임스탬프>/answers.jsonl + summary.json
     python -m rag_proto.run_eval --fake          # 전부 가짜 (색인도 --fake 로 만들어야 함)
     python -m rag_proto.run_eval --tier identifier
     python -m rag_proto.run_eval --limit 3
+
+본실험 (참가자 LLM × 반복, configs/participants.yaml):
+    python -m rag_proto.run_eval --smoke                          # 모델마다 1회 호출로 키·ID 확인
+    python -m rag_proto.run_eval --participants all --runs 3 \\
+        --questions ../../../benchmark/questions_v1.jsonl         # 7 × 3 × 40 = 840건
+    python -m rag_proto.run_eval --participants all --runs 3 \\
+        --questions ... --resume runs/<디렉터리>                    # 끊긴 지점부터 이어서
+    python -m rag_proto.run_eval --participants claude-sonnet-5 --runs 1 --limit 2 --questions ...
 """
 
 from __future__ import annotations
@@ -26,15 +34,16 @@ from datetime import datetime
 from pathlib import Path
 
 from .ask import Pipeline
-from .check_queries import load_queries
-from .config import load
-from .s6_generate import ABSTAIN_PHRASE
+from .check_queries import QUERIES_PATH, load_queries
+from .config import CONFIG_DIR, PARTICIPANTS_FILE, load, load_participants
+from .s5_retrieve import CachedRetriever, Retriever
+from .s6_generate import ABSTAIN_PHRASE, make_client
 from .schema import (
     AnswerRecord,
     EvalQuery,
-    QueryMode,
     QueryTier,
     SystemName,
+    TokenUsage,
     find_dangling_citations,
 )
 
@@ -98,9 +107,11 @@ def _error_record(pipeline: Pipeline, q: EvalQuery, exc: Exception, run: int) ->
         model=getattr(pipeline.client, "name", None),
         run=run,
         system=SystemName.RAG,
-        query_mode=QueryMode(cfg.pipeline["query"]["mode"]),
+        query_mode=pipeline.query_mode,
         question=q.question,
         answer="",
+        # 거절·잘림처럼 이미 과금된 실패는 GenerationError가 usage를 싣고 온다
+        tokens=getattr(exc, "usage", None) or TokenUsage(),
         corpus_commit=cfg.commit,
         corpus_phase=cfg.phase,
         corpus_snapshot=cfg.corpus_snapshot,
@@ -110,22 +121,31 @@ def _error_record(pipeline: Pipeline, q: EvalQuery, exc: Exception, run: int) ->
     )
 
 
-def run(pipeline: Pipeline, queries: list[EvalQuery], pattern: str, run_no: int = 1) -> list[dict]:
+def run(
+    pipeline: Pipeline,
+    queries: list[EvalQuery],
+    pattern: str,
+    run_no: int = 1,
+    sink=None,
+    label: str = "",
+) -> list[dict]:
+    """sink가 주어지면 행이 만들어지는 즉시 sink(row)를 호출한다(배치 실행의 즉시 기록용)."""
     rows: list[dict] = []
     for i, q in enumerate(queries, 1):
-        print(f"[{i}/{len(queries)}] {q.qid} ({q.tier.value}) ...", end="", flush=True)
+        print(f"{label}[{i}/{len(queries)}] {q.qid} ({q.tier.value}) ...", end="", flush=True)
         started = time.perf_counter()
         try:
             record = pipeline.ask(q.question, qid=q.qid, run=run_no)
         except Exception as exc:  # 한 문항 실패가 전체를 멈추면 안 된다
-            print(f" 실패: {type(exc).__name__}")
-            rows.append(
-                {
-                    "query": q.model_dump(mode="json"),
-                    "record": _error_record(pipeline, q, exc, run_no).model_dump(mode="json"),
-                    "eval": {"crashed": True, "error": traceback.format_exc(limit=2)},
-                }
-            )
+            print(f" 실패: {type(exc).__name__}: {exc}")
+            row = {
+                "query": q.model_dump(mode="json"),
+                "record": _error_record(pipeline, q, exc, run_no).model_dump(mode="json"),
+                "eval": {"crashed": True, "error": traceback.format_exc(limit=2)},
+            }
+            rows.append(row)
+            if sink:
+                sink(row)
             continue
 
         dangling = find_dangling_citations(record, pattern)
@@ -146,6 +166,8 @@ def run(pipeline: Pipeline, queries: list[EvalQuery], pattern: str, run_no: int 
                 },
             }
         )
+        if sink:
+            sink(rows[-1])
         print(f" {int((time.perf_counter() - started) * 1000)}ms")
     return rows
 
@@ -302,7 +324,210 @@ def write_run(rows: list[dict], summary: dict, cfg) -> Path:
     return out_dir
 
 
+# --------------------------------------------------------------------------
+# 본실험 배치: 참가자 LLM × 반복 회차 × 문항
+# --------------------------------------------------------------------------
+
+def select_participants(all_participants: list[dict], spec: str | None) -> list[dict]:
+    if spec in (None, "", "all"):
+        return all_participants
+    names = [s.strip() for s in spec.split(",") if s.strip()]
+    by_name = {p["model"]: p for p in all_participants}
+    missing = [n for n in names if n not in by_name]
+    if missing:
+        raise SystemExit(f"participants.yaml에 없는 모델: {missing}")
+    return [by_name[n] for n in names]
+
+
+def smoke_test(cfg, participants: list[dict]) -> int:
+    """참가자마다 1회 짧게 호출해 모델 ID·키·파라미터 오류를 본실험 전에 잡는다(검색 모델은 안 띄운다)."""
+    failures = 0
+    for p in participants:
+        try:
+            client = make_client(cfg, participant=p)
+            text, usage = client.complete("Reply with exactly: OK", "ping")
+            print(f"  OK    {p['model']:<28} {text.strip()[:30]!r}  tokens={usage.model_dump()}")
+        except Exception as exc:
+            failures += 1
+            print(f"  실패  {p['model']:<28} {type(exc).__name__}: {exc}")
+    return 1 if failures else 0
+
+
+def _is_retryable(rec: dict) -> bool:
+    # 크래시 행(답변 없음 + error)만 다시 돈다. dangling citation은 답변이 있는
+    # 정상 생성이라 다시 돌리면 돈만 더 쓰고 결과가 바뀐다.
+    return bool(rec.get("error")) and not rec.get("answer")
+
+
+def _load_done(answers_path: Path) -> set[tuple[str, str, int]]:
+    """
+    이어하기용. 이미 성공한 (qid, model, run)을 돌려주고, 크래시 행은 파일에서
+    지운다(다시 돌린 결과와 중복되면 채점 스크립트가 같은 문항을 두 번 센다).
+    """
+    if not answers_path.exists():
+        return set()
+    kept: list[str] = []
+    done: set[tuple[str, str, int]] = set()
+    for line in answers_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        if _is_retryable(rec):
+            continue
+        kept.append(line)
+        done.add((rec["qid"], rec["model"], rec["run"]))
+    answers_path.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
+    return done
+
+
+def summarize_batch(answers_path: Path) -> dict:
+    """answers.jsonl 전체(이어하기로 여러 번 나눠 돈 것 포함) 기준 모델별 집계. 토큰은 4열 그대로."""
+    per: dict[str, dict] = {}
+    for line in answers_path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        rec = json.loads(line)
+        s = per.setdefault(
+            rec["model"],
+            {"answers": 0, "errors": 0, "tokens": dict.fromkeys(TokenUsage.model_fields, 0), "_lat": []},
+        )
+        s["answers"] += 1
+        if _is_retryable(rec):
+            s["errors"] += 1
+        for k in s["tokens"]:
+            s["tokens"][k] += rec["tokens"][k]
+        s["_lat"].append(rec["latency_ms"]["total"])
+    for s in per.values():
+        lat = sorted(s.pop("_lat"))
+        s["latency_ms"] = {"p50": lat[len(lat) // 2] if lat else 0, "max": lat[-1] if lat else 0}
+    return per
+
+
+def run_batch(
+    cfg,
+    questions: list[EvalQuery],
+    participants: list[dict],
+    runs: int,
+    out_dir: Path,
+    pipeline_factory,
+    retriever,
+    fake_llm: bool = False,
+) -> dict:
+    """
+    참가자 LLM마다 client만 바꿔 끼우고 retriever(CachedRetriever)는 공유한다.
+    답변은 한 건씩 즉시 기록한다 — 840건 도중에 끊겨도 이미 과금된 답변을 잃지 않고
+    --resume으로 이어서 돈다. pipeline_factory(client, retriever)로 System B도 재사용한다.
+    """
+    pattern = cfg.pipeline["generation"]["citation_pattern"]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    answers_path = out_dir / "answers.jsonl"
+    done = _load_done(answers_path)
+    # 어떤 참가자 설정으로 돌렸는지 결과 옆에 남긴다(participants.yaml은 config_hash에 안 들어감)
+    (out_dir / PARTICIPANTS_FILE).write_text(
+        (CONFIG_DIR / PARTICIPANTS_FILE).read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    with answers_path.open("a", encoding="utf-8") as af, (out_dir / "eval.jsonl").open(
+        "a", encoding="utf-8"
+    ) as ef:
+
+        def sink(row: dict) -> None:
+            af.write(json.dumps(row["record"], ensure_ascii=False) + "\n")
+            af.flush()
+            ef.write(json.dumps(row, ensure_ascii=False) + "\n")
+            ef.flush()
+
+        for p in participants:
+            client = make_client(cfg, fake=fake_llm, participant=p)
+            pipeline = pipeline_factory(client, retriever)
+            for run_no in range(1, runs + 1):
+                todo = [q for q in questions if (q.qid, client.name, run_no) not in done]
+                if not todo:
+                    print(f"[{client.name} run{run_no}] 이미 완료 — 건너뜀")
+                    continue
+                run(pipeline, todo, pattern, run_no=run_no, sink=sink, label=f"[{client.name} run{run_no}] ")
+
+    summary = summarize_batch(answers_path)
+    (out_dir / "summary.json").write_text(
+        json.dumps(
+            {
+                "per_model": summary,
+                "questions": len(questions),
+                "runs": runs,
+                "query_mode": pipeline.query_mode.value if participants else None,
+                "corpus_commit": cfg.commit,
+                "corpus_snapshot": cfg.corpus_snapshot,
+                "corpus_version": cfg.corpus_version,
+                "config_hash": cfg.config_hash,
+                "fake_llm": fake_llm,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return summary
+
+
+def print_batch_summary(summary: dict) -> None:
+    print(f"\n{'─' * 72}")
+    print(f"{'model':<28} {'답변':>5} {'실패':>5} {'uncached':>10} {'c_create':>9} {'c_read':>9} {'output':>8}")
+    for model, s in summary.items():
+        t = s["tokens"]
+        print(
+            f"{model:<28} {s['answers']:>5} {s['errors']:>5} {t['uncached_input']:>10} "
+            f"{t['cache_creation']:>9} {t['cache_read']:>9} {t['output']:>8}"
+        )
+
+
+def main_batch(pipeline_factory=None, tag: str = "") -> int:
+    fake = "--fake" in sys.argv
+    fake_llm = fake or "--fake-llm" in sys.argv
+    cfg = load()
+    participants = select_participants(load_participants(), arg_value("--participants"))
+
+    unresolved = [p["model"] for p in participants if str(p["model"]).startswith("TODO")]
+    if unresolved and not fake_llm:
+        print(f"participants.yaml에 모델 ID가 확정되지 않은 항목이 있습니다: {unresolved}")
+        print("configs/participants.yaml을 채우거나 --participants로 제외하세요.")
+        return 1
+
+    if "--smoke" in sys.argv:
+        return smoke_test(cfg, participants)
+
+    questions = select_queries(load_queries(Path(arg_value("--questions", str(QUERIES_PATH)))))
+    if not questions:
+        print("실행할 질의가 없습니다.")
+        return 1
+    runs = int(arg_value("--runs", "1"))
+
+    resume = arg_value("--resume")
+    if resume:
+        out_dir = Path(resume)
+    else:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_dir = RUNS_DIR / f"{stamp}_{cfg.config_hash}_batch{tag}{'_fake' if fake_llm else ''}"
+
+    if pipeline_factory is None:
+        def pipeline_factory(client, retriever):
+            return Pipeline(cfg, retriever=retriever, client=client)
+
+    retriever = CachedRetriever(Retriever(cfg, fake=fake))
+    print(
+        f"참가자 {len(participants)}개 × 반복 {runs}회 × 문항 {len(questions)}개 "
+        f"= {len(participants) * runs * len(questions)}건 → {out_dir}/"
+    )
+    summary = run_batch(cfg, questions, participants, runs, out_dir, pipeline_factory, retriever, fake_llm)
+    print_batch_summary(summary)
+    print(f"\n검색 캐시: 실제 검색 {retriever.misses}회, 재사용 {retriever.hits}회")
+    print(f"{out_dir}/ 기록 완료")
+    return 0 if all(s["errors"] == 0 for s in summary.values()) else 1
+
+
 def main() -> int:
+    if "--participants" in sys.argv or "--smoke" in sys.argv:
+        return main_batch()
+
     fake = "--fake" in sys.argv
     fake_llm = fake or "--fake-llm" in sys.argv
     cfg = load()

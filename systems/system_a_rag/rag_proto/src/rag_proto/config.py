@@ -81,6 +81,17 @@ def load(config_dir: Path | None = None) -> Config:
     )
 
 
+PARTICIPANTS_FILE = "participants.yaml"
+
+
+def load_participants(config_dir: Path | None = None) -> list[dict]:
+    """configs/participants.yaml의 참가자 LLM 목록. defaults를 각 항목에 채워서 돌려준다."""
+    d = config_dir or CONFIG_DIR
+    raw = yaml.safe_load((d / PARTICIPANTS_FILE).read_text(encoding="utf-8"))
+    defaults = raw.get("defaults") or {}
+    return [{**defaults, **p} for p in raw["participants"]]
+
+
 def validate(cfg: Config) -> list[str]:
     """
     설정을 검사하고 문제 목록을 돌려준다.
