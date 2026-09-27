@@ -4,6 +4,8 @@ data/.embed_cache/
 data/*.jsonl
 data/*.npy
 data/embedding_ids.json
+# S3 산출물. 팀 저장소에서 색인을 만들 때 필요하지만 커밋하지 않는다
+data/embedding_manifest.json
 runs/
 __pycache__/
 *.pyc
