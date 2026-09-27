@@ -41,11 +41,68 @@ _XML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 _XML_DECL_RE = re.compile(r"^\s*<\?xml[^>]*\?>\s*", re.DOTALL)
 
 
+def _keep_with_line_map(
+    text: str, removed: list[tuple[int, int]], start: int = 0
+) -> tuple[str, list[int] | None]:
+    """
+    text[start:]에서 removed 구간(정렬·비중첩)을 지운 문자열과, 그 결과의 각 줄(1-based)이
+    원래 text의 몇 번째 줄이었는지를 돌려준다. 줄이 전혀 안 밀렸으면 대응표는 None.
+
+    주석은 파일 중간에서도 지워지므로 줄 번호가 일정하게 밀리지 않는다. 청크의
+    line_start/line_end를 documents.jsonl 원문 기준으로 되돌리려면 이 대응표가 필요하다
+    (원문 → 저장소 파일은 문서의 source_spans로 이어진다).
+    """
+    kept: list[int] = []
+    pos = start
+    for s, e in removed:
+        kept.extend(range(pos, s))
+        pos = e
+    kept.extend(range(pos, len(text)))
+
+    newline_before = [0] * (len(text) + 1)  # newline_before[i] = text[:i] 안의 줄바꿈 수
+    for i, ch in enumerate(text):
+        newline_before[i + 1] = newline_before[i] + (ch == "\n")
+
+    out = "".join(text[i] for i in kept)
+    line_map = [newline_before[kept[0]] + 1] if kept else [1]
+    for j, i in enumerate(kept):
+        if text[i] == "\n":
+            # 다음 줄은 다음 남은 문자가 있던 줄. 줄바꿈으로 끝나면 그 다음 줄(빈 마지막 줄)
+            nxt = kept[j + 1] if j + 1 < len(kept) else None
+            line_map.append(newline_before[nxt] + 1 if nxt is not None else newline_before[i] + 2)
+    if all(n == k for k, n in enumerate(line_map, start=1)):
+        return out, None
+    return out, line_map
+
+
+def _trim(text: str, line_map: list[int] | None, leading: str | None, trailing: bool):
+    """앞뒤 공백을 지우면서 대응표도 맞춘다. leading=None이면 모든 공백, "\\n"이면 줄바꿈만."""
+    stripped = text.lstrip(leading) if leading else text.lstrip()
+    dropped_lines = text[: len(text) - len(stripped)].count("\n")
+    if trailing:
+        stripped = stripped.rstrip()
+    if line_map is None:
+        if dropped_lines == 0:
+            return stripped, None
+        line_map = list(range(1, text.count("\n") + 2))
+    line_map = line_map[dropped_lines : dropped_lines + stripped.count("\n") + 1]
+    if all(n == k for k, n in enumerate(line_map, start=1)):
+        return stripped, None
+    return stripped, line_map
+
+
+def strip_xml_boilerplate_with_map(text: str) -> tuple[str, list[int] | None]:
+    """XML 선언과 주석을 걷어낸 본문과 원문 줄 대응표."""
+    m = _XML_DECL_RE.match(text)
+    start = m.end() if m else 0
+    comments = [(c.start(), c.end()) for c in _XML_COMMENT_RE.finditer(text, start)]
+    out, line_map = _keep_with_line_map(text, comments, start)
+    return _trim(out, line_map, leading=None, trailing=True)
+
+
 def strip_xml_boilerplate(text: str) -> str:
     """XML 선언과 주석을 걷어내고 본문만 남긴다."""
-    text = _XML_DECL_RE.sub("", text)
-    text = _XML_COMMENT_RE.sub("", text)
-    return text.strip()
+    return strip_xml_boilerplate_with_map(text)[0]
 
 
 # C++ 파일 앞머리의 아파치 라이선스 헤더.
@@ -57,9 +114,9 @@ _C_LINE_HEADER_RE = re.compile(r"\A(?:[ \t]*//[^\n]*\n)+")
 _LICENSE_HINT_RE = re.compile(r"copyright|licensed under|SPDX-License", re.IGNORECASE)
 
 
-def strip_code_license(text: str) -> str:
+def strip_code_license_with_map(text: str) -> tuple[str, list[int] | None]:
     """
-    파일 첫머리의 라이선스 주석만 제거한다.
+    파일 첫머리의 라이선스 주석만 제거한 본문과 원문 줄 대응표.
 
     Copyright / Licensed under / SPDX-License 가 들어 있을 때만 지운다.
     설명용 주석으로 시작하는 파일을 실수로 잘라내지 않기 위한 조건이다.
@@ -67,8 +124,13 @@ def strip_code_license(text: str) -> str:
     for pattern in (_C_BLOCK_HEADER_RE, _C_LINE_HEADER_RE):
         m = pattern.match(text)
         if m and _LICENSE_HINT_RE.search(m.group(0)):
-            return text[m.end() :].lstrip("\n")
-    return text
+            out, line_map = _keep_with_line_map(text, [], m.end())
+            return _trim(out, line_map, leading="\n", trailing=False)
+    return text, None
+
+
+def strip_code_license(text: str) -> str:
+    return strip_code_license_with_map(text)[0]
 
 
 def read_xml_root(path: Path) -> ET.Element | None:
@@ -330,10 +392,11 @@ def convert_from_team_corpus(cfg: Config) -> list[CorpusDoc]:
                 continue
 
             text = rec.get("text", "")
+            line_map = None
             if stype is SourceType.DATAMODEL_XML and strip_xml:
-                text = strip_xml_boilerplate(text)
+                text, line_map = strip_xml_boilerplate_with_map(text)
             elif stype is SourceType.CODE and strip_code:
-                text = strip_code_license(text)
+                text, line_map = strip_code_license_with_map(text)
             if not text.strip():
                 continue
 
@@ -365,6 +428,7 @@ def convert_from_team_corpus(cfg: Config) -> list[CorpusDoc]:
                     owner=cfg.owner,
                     upstream_document_id=rec.get("document_id"),
                     source_spans=rec.get("source_spans"),
+                    line_map=line_map,
                 )
             )
 
@@ -384,10 +448,11 @@ def convert_from_repo(cfg: Config) -> list[CorpusDoc]:
         rel = path.relative_to(cfg.repo_root)
         text = path.read_text(encoding="utf-8", errors="replace")
 
+        line_map = None
         if stype is SourceType.DATAMODEL_XML and strip_xml:
-            text = strip_xml_boilerplate(text)
+            text, line_map = strip_xml_boilerplate_with_map(text)
         elif stype is SourceType.CODE and strip_code:
-            text = strip_code_license(text)
+            text, line_map = strip_code_license_with_map(text)
 
         docs.append(
             CorpusDoc(
@@ -404,6 +469,7 @@ def convert_from_repo(cfg: Config) -> list[CorpusDoc]:
                 corpus_snapshot=cfg.corpus_snapshot,
                 corpus_version=cfg.corpus_version,
                 owner=cfg.owner,
+                line_map=line_map,
             )
         )
     return docs

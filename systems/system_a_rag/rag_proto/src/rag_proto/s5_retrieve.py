@@ -217,8 +217,17 @@ class Retriever:
         bm25_ids = self.bm25.search(query, r["bm25_k"], where=where)
 
         qvec = self.embedder.encode([query])[0]
-        vector_hits = vector_search(self.cfg, qvec, r["vector_k"], where=where)
-        vector_ids = [cid for cid, *_ in vector_hits]
+        if where:
+            # Chroma 메타데이터는 리스트를 "|a|b|" 문자열로 펴서 저장하므로(s4 flatten_metadata)
+            # Chroma where로 걸면 device_type 같은 리스트 필드가 0건이 되고 BM25와 의미가 갈린다.
+            # 벡터는 필터 없이 전체 순위를 받은 뒤 BM25와 같은 where_matches로 거른다(청크 수천 개라 저렴).
+            ranked = vector_search(self.cfg, qvec, len(self.chunks))
+            vector_ids = [
+                cid for cid, *_ in ranked if cid in self.by_id and where_matches(self.by_id[cid], where)
+            ][: r["vector_k"]]
+        else:
+            vector_hits = vector_search(self.cfg, qvec, r["vector_k"])
+            vector_ids = [cid for cid, *_ in vector_hits]
 
         fused_ids = reciprocal_rank_fusion(
             [bm25_ids, vector_ids], rrf_k=r.get("rrf_k", 60)

@@ -53,8 +53,11 @@ class Segment:
     source_type: SourceType
     lines: list[str] = field(default_factory=list)
     line_start: int = 0
-    # 대부분은 line_start + len(lines) - 1로 계산해도 맞지만(원문을 그대로
-    # 슬라이스하는 code/prose 경로), XML은 ET로 재직렬화해 줄 수가 원문과
+    # line_start와 lines[0] 사이의 원문 줄 수. 마크다운 헤딩 줄은 heading_path로
+    # 빠져 lines에 없지만 line_start는 헤딩 줄을 가리키므로 1이다.
+    body_offset: int = 0
+    # 대부분은 line_start + body_offset + len(lines) - 1로 계산해도 맞지만(원문을
+    # 그대로 슬라이스하는 code/prose 경로), XML은 ET로 재직렬화해 줄 수가 원문과
     # 달라지므로 실제 원문 종료 줄을 명시적으로 지정할 수 있게 한다.
     _line_end_override: int | None = None
 
@@ -66,7 +69,7 @@ class Segment:
     def line_end(self) -> int:
         if self._line_end_override is not None:
             return self._line_end_override
-        return self.line_start + len(self.lines) - 1
+        return self.line_start + self.body_offset + len(self.lines) - 1
 
 
 def split_segments(text: str) -> list[Segment]:
@@ -108,7 +111,7 @@ def split_segments(text: str) -> list[Segment]:
             level = len(heading.group(1))
             title = heading.group(2).strip()
             stack = stack[: level - 1] + [title]
-            current = Segment(list(stack), SourceType.PROSE, line_start=idx)
+            current = Segment(list(stack), SourceType.PROSE, line_start=idx, body_offset=1)
             continue
 
         current.lines.append(line)
@@ -117,30 +120,50 @@ def split_segments(text: str) -> list[Segment]:
     return segments
 
 
-def split_prose(text: str, target: int, overlap: int) -> list[str]:
+def split_prose(text: str, target: int, overlap: int) -> list[tuple[str, int, int]]:
     """
     문단 경계로 자르고 overlap만큼 겹친다.
     한 문단이 통째로 target을 넘으면 그대로 둔다 — 문장 중간을 자르면
     식별자가 쪼개질 위험이 있고, 그게 토큰 상한보다 중요하다.
+
+    (조각, 첫 줄, 끝 줄)을 돌려준다. 줄 번호는 text 기준 1부터다. 조각은 문단을
+    "\\n\\n"으로 다시 이은 것이라 빈 줄 수가 원문과 다를 수 있어, 조각이 아니라
+    원문에서 문단이 놓인 위치로 센다.
     """
     if count_tokens(text) <= target:
-        return [text]
+        return [(text, 1, text.count("\n") + 1)]
 
-    paragraphs = [p for p in re.split(r"\n\s*\n", text) if p.strip()]
-    pieces: list[str] = []
-    buf: list[str] = []
+    def line_of(pos: int) -> int:
+        return text.count("\n", 0, pos) + 1
+
+    # re.split(r"\n\s*\n", text)와 같은 경계로 나누되 문단 위치를 기억한다
+    paragraphs: list[tuple[str, int, int]] = []
+    pos = 0
+    for end, nxt in [(m.start(), m.end()) for m in re.finditer(r"\n\s*\n", text)] + [(len(text), None)]:
+        para = text[pos:end]
+        if para.strip():
+            first = line_of(pos + len(para) - len(para.lstrip()))
+            last = line_of(pos + len(para.rstrip()) - 1)
+            paragraphs.append((para, first, last))
+        pos = nxt
+
+    pieces: list[tuple[str, int, int]] = []
+    buf: list[tuple[str, int, int]] = []
+
+    def emit(parts: list[tuple[str, int, int]]) -> None:
+        pieces.append(("\n\n".join(p for p, _, _ in parts), parts[0][1], parts[-1][2]))
 
     for para in paragraphs:
         candidate = buf + [para]
-        if buf and count_tokens("\n\n".join(candidate)) > target:
-            pieces.append("\n\n".join(buf))
+        if buf and count_tokens("\n\n".join(p for p, _, _ in candidate)) > target:
+            emit(buf)
             tail = buf[-1]
-            buf = [tail, para] if count_tokens(tail) <= overlap else [para]
+            buf = [tail, para] if count_tokens(tail[0]) <= overlap else [para]
         else:
             buf = candidate
 
     if buf:
-        pieces.append("\n\n".join(buf))
+        emit(buf)
     return pieces
 
 
@@ -236,8 +259,8 @@ def split_xml_segments(text: str, target: int, max_depth: int = 2) -> list[Segme
     if root is None:
         # 그래도 안 되면 산문처럼 문단 단위로 자른다. 통째로 한 청크가 되는 것보다 낫다.
         return [
-            Segment([], SourceType.DATAMODEL_XML, part.splitlines(), 1)
-            for part in split_prose(text, target, 0)
+            Segment([], SourceType.DATAMODEL_XML, part.splitlines(), first, _line_end_override=last)
+            for part, first, last in split_prose(text, target, 0)
         ]
 
     segments: list[Segment] = []
@@ -334,6 +357,13 @@ def chunk_document(doc: CorpusDoc, cfg: Config) -> list[Chunk]:
     stopwords = id_cfg.get("stopwords", [])
 
     chunks: list[Chunk] = []
+
+    def to_source_line(n: int) -> int:
+        # 세그먼트 줄 번호는 S1이 주석을 걷어낸 doc.text 기준이다. 원문 기준으로 되돌린다.
+        if doc.line_map and 1 <= n <= len(doc.line_map):
+            return doc.line_map[n - 1]
+        return n
+
     seq = 0
 
     # source_type별로 다른 파서를 쓴다. (명세서 §04 S2)
@@ -361,13 +391,17 @@ def chunk_document(doc: CorpusDoc, cfg: Config) -> list[Chunk]:
 
     for seg in segments:
         # 구조 단위(XML 엘리먼트, 코드 블록)는 이미 완결된 덩어리라 재분할하지 않는다
-        parts = (
-            [seg.text]
-            if seg.source_type in (SourceType.CODE, SourceType.DATAMODEL_XML, SourceType.IDL)
-            else split_prose(seg.text, target, overlap)
-        )
+        if seg.source_type in (SourceType.CODE, SourceType.DATAMODEL_XML, SourceType.IDL):
+            parts = [(seg.text, seg.line_start, seg.line_end)]
+        else:
+            # 조각 줄 번호는 seg.text 기준이라 원문 줄로 옮긴다. 첫 조각은 헤딩 줄부터 센다.
+            base = seg.line_start + seg.body_offset - 1
+            parts = [
+                (part, seg.line_start if i == 0 else base + first, base + last)
+                for i, (part, first, last) in enumerate(split_prose(seg.text, target, overlap))
+            ]
 
-        for part in parts:
+        for part, part_start, part_end in parts:
             body = part
             if prepend and seg.heading_path:
                 body = " > ".join(seg.heading_path) + "\n\n" + part
@@ -392,8 +426,8 @@ def chunk_document(doc: CorpusDoc, cfg: Config) -> list[Chunk]:
                     heading_path=seg.heading_path,
                     device_type=doc.device_type,
                     cluster=doc.cluster,
-                    line_start=seg.line_start,
-                    line_end=seg.line_end,
+                    line_start=to_source_line(part_start),
+                    line_end=to_source_line(part_end),
                     identifiers=ids,
                     text=body,
                     n_tokens=count_tokens(body),

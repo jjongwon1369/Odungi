@@ -88,6 +88,9 @@ class CorpusDoc(BaseModel):
     # (팀 코퍼스를 안 거치는 fixture/1.4.2 변환)에서는 None.
     upstream_document_id: str | None = None
     source_spans: list[dict[str, Any]] | None = None
+    # S1이 저작권 주석·라이선스 헤더를 지우면 줄이 밀린다. text의 k번째 줄(1-based)이
+    # 원문(documents.jsonl의 text)의 몇 번째 줄인지. None이면 밀리지 않음(그대로 같음).
+    line_map: list[int] | None = None
 
 
 class Chunk(BaseModel):
@@ -99,6 +102,8 @@ class Chunk(BaseModel):
     heading_path: list[str] = Field(default_factory=list)
     device_type: list[str] = Field(default_factory=list)
     cluster: str | None = None
+    # 원문(팀 코퍼스는 documents.jsonl의 text) 기준 줄 번호. 저장소 파일의 줄은
+    # 문서의 source_spans로 이어진다.
     line_start: int | None = None
     line_end: int | None = None
     identifiers: list[str] = Field(default_factory=list)

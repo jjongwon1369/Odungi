@@ -15,12 +15,19 @@ data/queries.jsonl → runs/<타임스탬프>/answers.jsonl + summary.json
     python -m rag_proto.run_eval --limit 3
 
 본실험 (참가자 LLM × 반복, configs/participants.yaml):
+    python -m rag_proto.run_eval --list-models                    # 주소·키마다 모델 ID 목록 조회(과금 없음)
     python -m rag_proto.run_eval --smoke                          # 모델마다 1회 호출로 키·ID 확인
     python -m rag_proto.run_eval --participants all --runs 3 \\
         --questions ../../../benchmark/questions_v1.jsonl         # 7 × 3 × 40 = 840건
     python -m rag_proto.run_eval --participants all --runs 3 \\
         --questions ... --resume runs/<디렉터리>                    # 끊긴 지점부터 이어서
     python -m rag_proto.run_eval --participants claude-sonnet-5 --runs 1 --limit 2 --questions ...
+
+배치 출력 (runs/<디렉터리>/):
+    answers.jsonl          채점 대상. (qid, model, run)마다 한 줄, 실패도 error 행으로 남는다
+    eval.jsonl             answers.jsonl 행마다 DoD 점검 결과
+    failed_attempts.jsonl  --resume으로 다시 돌린 크래시 시도. 채점 대상은 아니지만 과금은 됐다
+    summary.json           모델별 집계(토큰 4열, billed_tokens는 재시도분 포함), 건너뛴 참가자
 """
 
 from __future__ import annotations
@@ -82,12 +89,13 @@ def score_identifiers(query: EvalQuery, record: AnswerRecord) -> dict:
 
     단순 부분 문자열(`g in answer`)로 대조하면 gold "On"이 "OnOff"나
     "OnWithTimedOff" 내부에 있어도 hit으로 잡혀 재현율이 과대 계상된다.
-    \b 단어 경계로 정확히 대조한다 (hex ID·CamelCase·단일 단어 전부 커버).
+    앞뒤가 ASCII 영숫자·밑줄이 아닐 때만 일치로 본다. \b는 쓰지 않는다 — 유니코드 \w에
+    한글이 포함돼 "0x0056이다", "TemperatureSetpoint는"처럼 조사가 붙으면 놓친다.
     """
     gold = query.gold_identifiers
     if not gold:
         return {"gold": 0, "hit": 0, "missed": [], "recall": None}
-    hit = [g for g in gold if re.search(rf"\b{re.escape(g)}\b", record.answer)]
+    hit = [g for g in gold if re.search(rf"(?<![A-Za-z0-9_]){re.escape(g)}(?![A-Za-z0-9_])", record.answer)]
     return {
         "gold": len(gold),
         "hit": len(hit),
@@ -361,13 +369,20 @@ def list_models(participants: list[dict]) -> int:
     참가자 설정의 (제공자, 주소, 키) 조합마다 사용 가능한 모델 ID를 조회한다(과금 없음).
     participants.yaml의 모델 ID·주소를 확정하는 용도. 키 값은 출력하지 않는다.
     """
-    from .s6_generate import require_api_key, resolve_base_url
+    from .s6_generate import require_api_key, resolve_api_key_env, resolve_base_url
+
+    failures = 0
+    # 주소·키 이름은 make_client와 같은 규칙으로 정한다(OPENAI_BASE_URL 등으로 새지 않게)
+    resolved: list[tuple[dict, str, str]] = []
+    for p in participants:
+        try:
+            resolved.append((p, resolve_base_url(p), resolve_api_key_env(p)))
+        except ValueError as exc:
+            failures += 1
+            print(f"\n[{p['provider']}] {p['model']} — 설정 오류: {exc}")
 
     seen: set[tuple] = set()
-    failures = 0
-    for p in participants:
-        base_url = resolve_base_url(p)
-        key_env = p.get("api_key_env", "ANTHROPIC_API_KEY" if p["provider"] == "anthropic" else "OPENAI_API_KEY")
+    for p, base_url, key_env in resolved:
         combo = (p["provider"], base_url, key_env)
         if combo in seen:
             continue
@@ -388,7 +403,7 @@ def list_models(participants: list[dict]) -> int:
             failures += 1
             print(f"  실패: {type(exc).__name__}: {str(exc)[:200]}")
             continue
-        wanted = [q["model"] for q in participants if resolve_base_url(q) == base_url]
+        wanted = [q["model"] for q, url, env in resolved if (q["provider"], url, env) == combo]
         print(f"  모델 {len(ids)}개. participants.yaml의 이름이 목록에 있는지:")
         for w in wanted:
             print(f"    {'있음 ' if w in ids else '없음 '} {w}")
@@ -404,47 +419,90 @@ def _is_retryable(rec: dict) -> bool:
     return bool(rec.get("error")) and not rec.get("answer")
 
 
-def _load_done(answers_path: Path) -> set[tuple[str, str, int]]:
-    """
-    이어하기용. 이미 성공한 (qid, model, run)을 돌려주고, 크래시 행은 파일에서
-    지운다(다시 돌린 결과와 중복되면 채점 스크립트가 같은 문항을 두 번 센다).
-    """
-    if not answers_path.exists():
-        return set()
-    kept: list[str] = []
-    done: set[tuple[str, str, int]] = set()
-    for line in answers_path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        rec = json.loads(line)
-        if _is_retryable(rec):
-            continue
-        kept.append(line)
-        done.add((rec["qid"], rec["model"], rec["run"]))
-    answers_path.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
-    return done
+def _key(rec: dict) -> tuple[str, str, int]:
+    return (rec["qid"], rec["model"], rec["run"])
 
 
-def summarize_batch(answers_path: Path) -> dict:
-    """answers.jsonl 전체(이어하기로 여러 번 나눠 돈 것 포함) 기준 모델별 집계. 토큰은 4열 그대로."""
-    per: dict[str, dict] = {}
-    for line in answers_path.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        rec = json.loads(line)
-        s = per.setdefault(
-            rec["model"],
-            {"answers": 0, "errors": 0, "tokens": dict.fromkeys(TokenUsage.model_fields, 0), "_lat": []},
+def _read_jsonl(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _write_jsonl(path: Path, rows: list[dict]) -> None:
+    path.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+
+
+def _prepare_resume(out_dir: Path, scope: set[tuple[str, str, int]]) -> set[tuple[str, str, int]]:
+    """
+    이어하기 준비. 이미 끝난 (qid, model, run)을 돌려준다.
+
+    이번 실행 범위(scope)에 든 크래시 행만 answers.jsonl에서 빼서 다시 돌린다 — 그대로 두면
+    재실행 결과와 중복돼 채점 스크립트가 같은 문항을 두 번 센다. 범위 밖 크래시 행은 건드리지
+    않는다(--participants/--runs 일부만 이어 돌릴 때 다른 모델 행이 사라지지 않게).
+    뺀 행은 failed_attempts.jsonl로 옮긴다: 거절·잘림은 이미 과금됐으므로 비용 집계에 남아야 한다.
+    eval.jsonl에서도 같은 크래시 행을 빼서 두 파일이 어긋나지 않게 한다.
+    """
+    answers_path = out_dir / "answers.jsonl"
+    answers = _read_jsonl(answers_path)
+    retry = [r for r in answers if _is_retryable(r) and _key(r) in scope]
+    if retry:
+        retry_keys = {_key(r) for r in retry}
+        _write_jsonl(answers_path, [r for r in answers if not (_is_retryable(r) and _key(r) in retry_keys)])
+        with (out_dir / "failed_attempts.jsonl").open("a", encoding="utf-8") as f:
+            for r in retry:
+                f.write(json.dumps(r, ensure_ascii=False) + "\n")
+        eval_path = out_dir / "eval.jsonl"
+        _write_jsonl(
+            eval_path,
+            [
+                e for e in _read_jsonl(eval_path)
+                if not (e["eval"].get("crashed") and e.get("record") and _key(e["record"]) in retry_keys)
+            ],
         )
+        print(f"이어하기: 크래시 {len(retry)}건을 다시 돌림(failed_attempts.jsonl에 보존)")
+    return {_key(r) for r in answers if not _is_retryable(r)}
+
+
+def summarize_batch(out_dir: Path) -> dict:
+    """
+    모델별 집계. 토큰은 4열 그대로.
+      tokens            : answers.jsonl(채점 대상 답변)의 토큰
+      retried_failures  : 이어하기로 다시 돌린 크래시 시도(failed_attempts.jsonl) — 과금은 됐다
+      billed_tokens     : 둘의 열별 합 = 실제 청구 대상
+    """
+    per: dict[str, dict] = {}
+
+    def slot(model: str) -> dict:
+        return per.setdefault(
+            model,
+            {
+                "answers": 0,
+                "errors": 0,
+                "tokens": dict.fromkeys(TokenUsage.model_fields, 0),
+                "retried_failures": 0,
+                "retried_failure_tokens": dict.fromkeys(TokenUsage.model_fields, 0),
+                "_lat": [],
+            },
+        )
+
+    for rec in _read_jsonl(out_dir / "answers.jsonl"):
+        s = slot(rec["model"])
         s["answers"] += 1
         if _is_retryable(rec):
             s["errors"] += 1
         for k in s["tokens"]:
             s["tokens"][k] += rec["tokens"][k]
         s["_lat"].append(rec["latency_ms"]["total"])
+    for rec in _read_jsonl(out_dir / "failed_attempts.jsonl"):
+        s = slot(rec["model"])
+        s["retried_failures"] += 1
+        for k in s["retried_failure_tokens"]:
+            s["retried_failure_tokens"][k] += rec["tokens"][k]
     for s in per.values():
         lat = sorted(s.pop("_lat"))
         s["latency_ms"] = {"p50": lat[len(lat) // 2] if lat else 0, "max": lat[-1] if lat else 0}
+        s["billed_tokens"] = {k: s["tokens"][k] + s["retried_failure_tokens"][k] for k in s["tokens"]}
     return per
 
 
@@ -466,7 +524,8 @@ def run_batch(
     pattern = cfg.pipeline["generation"]["citation_pattern"]
     out_dir.mkdir(parents=True, exist_ok=True)
     answers_path = out_dir / "answers.jsonl"
-    done = _load_done(answers_path)
+    scope = {(q.qid, p["model"], run_no) for p in participants for run_no in range(1, runs + 1) for q in questions}
+    done = _prepare_resume(out_dir, scope)
     # 어떤 참가자 설정으로 돌렸는지 결과 옆에 남긴다(participants.yaml은 config_hash에 안 들어감)
     (out_dir / PARTICIPANTS_FILE).write_text(
         (CONFIG_DIR / PARTICIPANTS_FILE).read_text(encoding="utf-8"), encoding="utf-8"
@@ -482,47 +541,57 @@ def run_batch(
             ef.write(json.dumps(row, ensure_ascii=False) + "\n")
             ef.flush()
 
+        skipped: dict[str, str] = {}
+        query_mode = None
         for p in participants:
-            client = make_client(cfg, fake=fake_llm, participant=p)
-            pipeline = pipeline_factory(client, retriever)
+            # 참가자 하나의 설정 오류(키 누락, 잘못된 주소 등)가 나머지 참가자까지 멈추면 안 된다.
+            # 건너뛴 참가자는 answers.jsonl에 행이 없으니 --resume으로 나중에 그대로 돌릴 수 있다.
+            try:
+                client = make_client(cfg, fake=fake_llm, participant=p)
+                pipeline = pipeline_factory(client, retriever)
+            except Exception as exc:
+                skipped[p["model"]] = f"{type(exc).__name__}: {exc}"
+                print(f"[{p['model']}] 건너뜀 — {skipped[p['model']]}")
+                continue
+            query_mode = pipeline.query_mode.value
             for run_no in range(1, runs + 1):
-                todo = [q for q in questions if (q.qid, client.name, run_no) not in done]
+                todo = [q for q in questions if (q.qid, p["model"], run_no) not in done]
                 if not todo:
-                    print(f"[{client.name} run{run_no}] 이미 완료 — 건너뜀")
+                    print(f"[{p['model']} run{run_no}] 이미 완료 — 건너뜀")
                     continue
-                run(pipeline, todo, pattern, run_no=run_no, sink=sink, label=f"[{client.name} run{run_no}] ")
+                run(pipeline, todo, pattern, run_no=run_no, sink=sink, label=f"[{p['model']} run{run_no}] ")
 
-    summary = summarize_batch(answers_path)
-    (out_dir / "summary.json").write_text(
-        json.dumps(
-            {
-                "per_model": summary,
-                "questions": len(questions),
-                "runs": runs,
-                "query_mode": pipeline.query_mode.value if participants else None,
-                "corpus_commit": cfg.commit,
-                "corpus_snapshot": cfg.corpus_snapshot,
-                "corpus_version": cfg.corpus_version,
-                "config_hash": cfg.config_hash,
-                "fake_llm": fake_llm,
-            },
-            ensure_ascii=False,
-            indent=2,
-        ),
-        encoding="utf-8",
-    )
+    summary = {
+        "per_model": summarize_batch(out_dir),
+        "skipped_participants": skipped,
+        "questions": len(questions),
+        "runs": runs,
+        "query_mode": query_mode,
+        "corpus_commit": cfg.commit,
+        "corpus_snapshot": cfg.corpus_snapshot,
+        "corpus_version": cfg.corpus_version,
+        "config_hash": cfg.config_hash,
+        "fake_llm": fake_llm,
+    }
+    (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary
 
 
 def print_batch_summary(summary: dict) -> None:
-    print(f"\n{'─' * 72}")
-    print(f"{'model':<28} {'답변':>5} {'실패':>5} {'uncached':>10} {'c_create':>9} {'c_read':>9} {'output':>8}")
-    for model, s in summary.items():
-        t = s["tokens"]
+    print(f"\n{'─' * 80}")
+    print(
+        f"{'model':<28} {'답변':>5} {'실패':>5} {'재시도':>5} "
+        f"{'uncached':>10} {'c_create':>9} {'c_read':>9} {'output':>8}"
+    )
+    for model, s in summary["per_model"].items():
+        # 청구 기준(재시도로 대체된 크래시 시도 포함). 채점 대상만의 토큰은 summary.json의 tokens
+        t = s["billed_tokens"]
         print(
-            f"{model:<28} {s['answers']:>5} {s['errors']:>5} {t['uncached_input']:>10} "
-            f"{t['cache_creation']:>9} {t['cache_read']:>9} {t['output']:>8}"
+            f"{model:<28} {s['answers']:>5} {s['errors']:>5} {s['retried_failures']:>5} "
+            f"{t['uncached_input']:>10} {t['cache_creation']:>9} {t['cache_read']:>9} {t['output']:>8}"
         )
+    for model, reason in summary["skipped_participants"].items():
+        print(f"{model:<28} 건너뜀 — {reason}")
 
 
 def main_batch(pipeline_factory=None, tag: str = "") -> int:
@@ -569,7 +638,8 @@ def main_batch(pipeline_factory=None, tag: str = "") -> int:
     print_batch_summary(summary)
     print(f"\n검색 캐시: 실제 검색 {retriever.misses}회, 재사용 {retriever.hits}회")
     print(f"{out_dir}/ 기록 완료")
-    return 0 if all(s["errors"] == 0 for s in summary.values()) else 1
+    ok = not summary["skipped_participants"] and all(s["errors"] == 0 for s in summary["per_model"].values())
+    return 0 if ok else 1
 
 
 def main() -> int:
