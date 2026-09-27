@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rag-proto"
+version = "0.2.0"
+description = "Matter/connectedhomeip 기술문서 RAG 프로토타입 (종합설계프로젝트 1, 오둥이조)"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "PyYAML>=6.0",
+    "numpy>=1.24",
+    "rank-bm25>=0.2.2",
+    "chromadb>=0.5",
+]
+
+[project.optional-dependencies]
+# 모델이 필요한 의존성. --fake 로만 돌릴 때는 설치하지 않아도 된다.
+models = [
+    "FlagEmbedding>=1.2",
+    "torch>=2.0",
+]
+llm = [
+    "openai>=1.50",
+    "python-dotenv>=1.0",
+]
+dev = [
+    "pytest>=8.0",
+    "tiktoken>=0.7",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

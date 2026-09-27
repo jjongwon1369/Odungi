@@ -1,0 +1,48 @@
+# 코퍼스 수집 범위
+# 명세서 §01 원칙 4: 경로는 이 파일에만 존재한다.
+#
+# v0.3 — 입력을 팀 코퍼스 documents.jsonl 로 전환.
+#   CORPUS_V1.md §15: "RAG 담당자는 documents.jsonl을 chunking → embedding →
+#   indexing → retrieval의 공통 입력으로 사용한다."
+#   범위 선정(어떤 Device Type, 어떤 Cluster)은 이제 코퍼스 담당자 몫이다.
+#   RAG는 받은 파일을 그대로 소비한다. scope 변경이 필요하면 코퍼스 담당자에게 요청한다.
+
+source: team_corpus          # team_corpus | repo
+
+# ── team_corpus 모드 ──────────────────────────────────────────
+# documents.jsonl 은 저장소에 커밋되지 않는다 (corpus/.gitignore).
+# 코퍼스 담당자에게 직접 받아 아래 경로에 둔다.
+team_corpus:
+  documents_path: "tests/fixtures/team/documents.jsonl"
+  scope_path: "tests/fixtures/team/scope.json"          # Device Type ID → 이름 매핑용 (선택)
+  # (source_role, doc_type) → source_type
+  role_map:
+    specification: datamodel_xml
+    sdk_codegen: datamodel_xml
+    documentation: prose
+    implementation: code
+    generated_definition: code
+    example: by_doc_type      # matter/zap → idl, cpp/h/cmake → code, md → prose
+
+# ── repo 모드 (개인 샘플용, 폐기 예정) ────────────────────────
+repo_root: "./data/raw/connectedhomeip"
+data_model_version: "1.7"
+device_types: [Refrigerator, TemperatureControlledCabinet, LaundryWasher, RoomAirConditioner]
+extra_clusters: []
+follow_cluster_references: true
+sources:
+  device_types: {enabled: true}
+  clusters: {enabled: true}
+  namespaces: {enabled: true, name_filter: [Refrigerator, Laundry, RoomAirConditioner, Temperature]}
+  cpp: {enabled: true, root: "src/app/clusters", extensions: [".cpp", ".h"]}
+  docs: {enabled: true, root: "docs", include: ["**/*.md"],
+         keyword_filter: [refriger, laundry, washer, "air conditioner", "temperature control"], max_files: 15}
+
+# 공통
+strip_xml_comments: true
+strip_code_license: true
+device_type_hints:
+  Refrigerator: [refrigerator, fridge]
+  LaundryWasher: [laundry, washer]
+  RoomAirConditioner: [air-conditioner, air_conditioner, aircon]
+  TemperatureControlledCabinet: [temperaturecontrolledcabinet, cabinet]
