@@ -27,7 +27,9 @@ data/queries.jsonl → runs/<타임스탬프>/answers.jsonl + summary.json
     answers.jsonl          채점 대상. (qid, model, run)마다 한 줄, 실패도 error 행으로 남는다
     eval.jsonl             answers.jsonl 행마다 DoD 점검 결과
     failed_attempts.jsonl  --resume으로 다시 돌린 크래시 시도. 채점 대상은 아니지만 과금은 됐다
-    summary.json           모델별 집계(토큰 4열, billed_tokens는 재시도분 포함), 건너뛴 참가자
+    invocations.jsonl      호출마다 한 줄: 시각, 코드 커밋(code_commit·code_dirty), 참가자·회차
+    summary.json           모델별 집계(토큰 4열, billed_tokens는 재시도분 포함), 건너뛴 참가자,
+                           코드 커밋(code_commits_all이 2개 이상이면 도중에 코드가 바뀐 것)
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import traceback
@@ -299,6 +302,42 @@ def print_report(summary: dict, rows: list[dict], fake: bool, expected_total: in
             print(f"  {r['query']['qid']}: {r['eval']['identifiers']['missed']}")
 
 
+def code_version() -> dict:
+    """
+    실행하는 코드의 git 커밋. answer_format.md: 본실험은 코드를 커밋한 뒤 그 커밋으로 돌린다.
+    code_dirty는 추적 중인 파일에 커밋하지 않은 변경이 있는지다. data/·runs/ 산출물과 .DS_Store는
+    보지 않는다(개인 저장소는 data/embedding_manifest.json을 추적해 S3를 돌릴 때마다 바뀜).
+    System B는 같은 저장소에 있으므로 B 코드 변경도 여기서 잡힌다. git 밖이면 전부 None.
+    """
+    root = CONFIG_DIR.parent
+
+    def git(*args: str) -> str:
+        return subprocess.run(
+            ["git", "-C", str(root), *args], capture_output=True, text=True, check=True
+        ).stdout
+
+    try:
+        commit = git("rev-parse", "HEAD").strip()
+        entries = git("status", "--porcelain", "-z", "--untracked-files=no").split("\0")
+    except (OSError, subprocess.CalledProcessError):
+        return {"code_commit": None, "code_dirty": None, "code_dirty_files": None}
+
+    dirty: list[str] = []
+    i = 0
+    while i < len(entries):
+        entry, i = entries[i], i + 1
+        if not entry:
+            continue
+        status, path = entry[:2], entry[3:]
+        if "R" in status or "C" in status:
+            i += 1  # -z 형식에서 이름 변경·복사는 원래 경로가 다음 항목으로 온다
+        parts = Path(path).parts
+        if "data" in parts or "runs" in parts or parts[-1] == ".DS_Store":
+            continue
+        dirty.append(path)
+    return {"code_commit": commit, "code_dirty": bool(dirty), "code_dirty_files": dirty}
+
+
 def write_run(rows: list[dict], summary: dict, cfg) -> Path:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     out_dir = RUNS_DIR / f"{stamp}_{cfg.config_hash}"
@@ -322,6 +361,7 @@ def write_run(rows: list[dict], summary: dict, cfg) -> Path:
                 "corpus_snapshot": cfg.corpus_snapshot,
                 "corpus_version": cfg.corpus_version,
                 "config_hash": cfg.config_hash,
+                **code_version(),
                 "model": cfg.pipeline["generation"]["model"],
                 "ran_at": stamp,
             },
@@ -531,6 +571,24 @@ def run_batch(
         (CONFIG_DIR / PARTICIPANTS_FILE).read_text(encoding="utf-8"), encoding="utf-8"
     )
 
+    # 실행한 코드 커밋을 호출마다 쌓는다. --resume으로 여러 번 나눠 돌리면 summary.json엔
+    # 마지막 호출만 남으므로, 도중에 코드가 바뀌었는지는 이 기록으로 판단한다.
+    code = code_version()
+    # venv에 rag_proto가 다른 위치에서 editable로 설치돼 있으면 그쪽 코드가 import된다.
+    # 팀 저장소에서 돌린다면 여기 찍힌 위치가 팀 저장소인지 확인할 것(아니면 PYTHONPATH=src)
+    print(f"코드: {CONFIG_DIR.parent} @ {(code['code_commit'] or '?')[:7]}")
+    if code["code_dirty"]:
+        print(f"경고: 커밋하지 않은 코드·설정 변경이 있습니다 — {code['code_dirty_files'][:5]}")
+    invocations_path = out_dir / "invocations.jsonl"
+    with invocations_path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            **code,
+            "participants": [p["model"] for p in participants],
+            "runs": runs,
+            "questions": len(questions),
+        }, ensure_ascii=False) + "\n")
+
     with answers_path.open("a", encoding="utf-8") as af, (out_dir / "eval.jsonl").open(
         "a", encoding="utf-8"
     ) as ef:
@@ -571,6 +629,9 @@ def run_batch(
         "corpus_snapshot": cfg.corpus_snapshot,
         "corpus_version": cfg.corpus_version,
         "config_hash": cfg.config_hash,
+        **code,
+        # 이 결과 폴더를 만든 모든 호출의 커밋. 2개 이상이면 도중에 코드가 바뀐 것
+        "code_commits_all": list(dict.fromkeys(inv["code_commit"] for inv in _read_jsonl(invocations_path))),
         "fake_llm": fake_llm,
     }
     (out_dir / "summary.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
