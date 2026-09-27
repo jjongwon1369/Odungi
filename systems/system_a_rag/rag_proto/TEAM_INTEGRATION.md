@@ -64,8 +64,8 @@ ls systems/system_a_rag/rag_proto/
 | (생성)     | `src/rag_proto/s6_generate.py`, `ask.py` |
 | (평가 원자료) | `src/rag_proto/run_eval.py` → `runs/<ts>_<config_hash>/answers.jsonl` |
 
-입력: `corpus/processed/documents.jsonl` (CORPUS_V1.md §15). 저장소 직접 파싱하지 않음.
-SSOT: `corpus/metadata/snapshot.json` 의 commit / snapshot_id 를 `configs/ssot.yaml` 에 복사.
+입력: C3 tier `corpus/tiers/c3/processed/documents.jsonl` (팀 스크립트로 로컬 생성). 저장소 직접 파싱하지 않음.
+SSOT: `corpus/tiers/c3/metadata/snapshot.json` 의 commit / snapshot_id 를 `configs/ssot.yaml` 에 복사.
 
 ## 실행
 
@@ -73,8 +73,9 @@ SSOT: `corpus/metadata/snapshot.json` 의 commit / snapshot_id 를 `configs/ssot
     python -m venv .venv && source .venv/bin/activate
     pip install -e ".[models,llm]"
     mkdir -p data/team
-    cp ../../../corpus/processed/documents.jsonl data/team/     # 로컬에 있을 때
-    cp ../../../corpus/metadata/scope.json      data/team/
+    # Odungi 루트에서 먼저: CONNECTEDHOMEIP_PATH=... python scripts/corpus/build.py --corpus-root corpus/tiers/c3
+    cp ../../../corpus/tiers/c3/processed/documents.jsonl data/team/
+    cp ../../../corpus/tiers/c3/scope.json               data/team/
     python -m rag_proto.config
     python -m rag_proto.s1_convert && python -m rag_proto.s2_chunk
     python -m rag_proto.check_queries

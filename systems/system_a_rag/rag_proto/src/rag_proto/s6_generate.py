@@ -73,6 +73,18 @@ class LLMClient(Protocol):
     def complete(self, system: str, prompt: str) -> tuple[str, TokenUsage]: ...
 
 
+def require_api_key(env_name: str) -> str:
+    """
+    참가자 키는 지정한 환경변수에서만 읽는다. 비어 있으면 None을 SDK에 넘기지 않고 멈춘다 —
+    openai SDK는 None이면 OPENAI_API_KEY로 대신 채우는데, 그러면 DeepSeek·Kimi처럼
+    base_url이 다른 곳으로 OpenAI 키가 전송된다(Anthropic SDK도 ANTHROPIC_API_KEY로 채운다).
+    """
+    value = os.environ.get(env_name, "").strip()
+    if not value:
+        raise ValueError(f"{env_name}가 비어 있습니다 (.env 확인)")
+    return value
+
+
 class GenerationError(RuntimeError):
     """답변을 쓸 수 없는 응답(거절, 토큰 상한으로 본문이 비어 있음 등).
     run_eval이 잡아서 error 행으로 남긴다 — 빈 답변을 정상 답변처럼 채점하면 안 된다.
@@ -138,7 +150,7 @@ class OpenAIClient:
         # 추론형 모델 일부는 기본값 외 temperature를 거부한다. None이면 아예 안 보낸다.
         self.temperature = temperature
         self.client = OpenAI(
-            api_key=os.environ.get(api_key_env),
+            api_key=require_api_key(api_key_env),
             base_url=base_url,
             max_retries=max_retries,
         )
@@ -202,7 +214,7 @@ class AnthropicClient:
         self.max_tokens = max_tokens
         self.effort = effort  # None이면 모델 기본값(Opus 5.5는 medium, Sonnet 5는 high)
         self.client = anthropic.Anthropic(
-            api_key=os.environ.get(api_key_env), base_url=base_url, max_retries=max_retries
+            api_key=require_api_key(api_key_env), base_url=base_url, max_retries=max_retries
         )
 
     def complete(self, system: str, prompt: str) -> tuple[str, TokenUsage]:

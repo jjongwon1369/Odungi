@@ -64,10 +64,10 @@
 
 | 항목 | 값 | 비고 |
 |---|---|---|
-| **코퍼스 입력** | 팀 `corpus/processed/documents.jsonl` | CORPUS_V1.md §15. 저장소 클론·파싱 금지 |
-| **SSOT** | `1ac132b5ecd42cb6c78772f2576ed6f7fc814183` (포크 DS-J-L, master 관찰) | `corpus/metadata/snapshot.json` |
+| **코퍼스 입력** | 팀 C3 tier `corpus/tiers/c3/processed/documents.jsonl` | 팀 스크립트로 로컬 생성(`scripts/corpus/build.py --corpus-root corpus/tiers/c3`). rag_proto가 원본 저장소를 직접 파싱하지 않음 |
+| **SSOT** | `1ac132b5ecd42cb6c78772f2576ed6f7fc814183` (포크 DS-J-L, master 관찰) | `corpus/tiers/c3/metadata/snapshot.json` |
 | Data Model | `data_model/1.7` 개발 스냅샷 | 배포 사양 아님. spec_tag `0.9-1.7-winter2027` |
-| 코퍼스 버전 | v0.1 (v1.0 candidate), snapshot_id 기록 | `frozen: false` — 라이선스·교차검토 미완 |
+| 코퍼스 버전 | `0.1-c3`, snapshot `corpus-c3:2f00a807…` (2026-09-27 전환) | 9/22 v0.1(`ee88b47a…`)과 본문 282개 동일, 라벨만 다름. `frozen: false` |
 | 범위 | 3제품군 / 4 Device Type / 23 Cluster | 범위 변경은 코퍼스 담당자에게 요청 |
 | Phase | `integrated` | 개인 샘플(b9c05ca0, 1.4.2)은 폐기 |
 | 청킹 | 512토큰 / 중첩 50 | 베이스라인 논문과 동일 |

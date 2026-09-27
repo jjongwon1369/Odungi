@@ -10,5 +10,6 @@
 | (생성) | `src/rag_proto/s6_generate.py`, `ask.py` |
 | (평가 원자료) | `src/rag_proto/run_eval.py` → `runs/<ts>_<config_hash>/answers.jsonl` |
 
-입력: `corpus/processed/documents.jsonl` (CORPUS_V1.md §15). 저장소를 직접 파싱하지 않음.
-SSOT: `corpus/metadata/snapshot.json` 의 commit / snapshot_id 를 `rag_proto/configs/ssot.yaml` 에 복사.
+입력: C3 tier `corpus/tiers/c3/processed/documents.jsonl` (팀 스크립트로 로컬 생성). 저장소를 직접 파싱하지 않음.
+SSOT: `corpus/tiers/c3/metadata/snapshot.json` 의 commit / snapshot_id 를 `rag_proto/configs/ssot.yaml` 에 복사
+(현재 `corpus-c3:2f00a807…`, 버전 `0.1-c3`).

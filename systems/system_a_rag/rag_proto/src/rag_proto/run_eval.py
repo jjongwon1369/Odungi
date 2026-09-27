@@ -26,6 +26,7 @@ data/queries.jsonl → runs/<타임스탬프>/answers.jsonl + summary.json
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -355,6 +356,48 @@ def smoke_test(cfg, participants: list[dict]) -> int:
     return 1 if failures else 0
 
 
+def list_models(participants: list[dict]) -> int:
+    """
+    참가자 설정의 (제공자, 주소, 키) 조합마다 사용 가능한 모델 ID를 조회한다(과금 없음).
+    participants.yaml의 모델 ID·주소를 확정하는 용도. 키 값은 출력하지 않는다.
+    """
+    from .s6_generate import require_api_key, resolve_base_url
+
+    seen: set[tuple] = set()
+    failures = 0
+    for p in participants:
+        base_url = resolve_base_url(p)
+        key_env = p.get("api_key_env", "ANTHROPIC_API_KEY" if p["provider"] == "anthropic" else "OPENAI_API_KEY")
+        combo = (p["provider"], base_url, key_env)
+        if combo in seen:
+            continue
+        seen.add(combo)
+        print(f"\n[{p['provider']}] {base_url}  (키: {key_env}{'' if os.environ.get(key_env) else ' — 비어 있음'})")
+        try:
+            key = require_api_key(key_env)
+            if p["provider"] == "anthropic":
+                import anthropic
+
+                client = anthropic.Anthropic(api_key=key, base_url=base_url)
+            else:
+                from openai import OpenAI
+
+                client = OpenAI(api_key=key, base_url=base_url)
+            ids = sorted(m.id for m in client.models.list())
+        except Exception as exc:
+            failures += 1
+            print(f"  실패: {type(exc).__name__}: {str(exc)[:200]}")
+            continue
+        wanted = [q["model"] for q in participants if resolve_base_url(q) == base_url]
+        print(f"  모델 {len(ids)}개. participants.yaml의 이름이 목록에 있는지:")
+        for w in wanted:
+            print(f"    {'있음 ' if w in ids else '없음 '} {w}")
+        # OpenAI 목록은 수백 개라 참가자 이름과 겹치는 계열만 보여준다
+        shown = ids if len(ids) <= 40 else [i for i in ids if any(t in i for t in ("luna", "sol", "terra", "astra"))]
+        print("  " + ", ".join(shown))
+    return 1 if failures else 0
+
+
 def _is_retryable(rec: dict) -> bool:
     # 크래시 행(답변 없음 + error)만 다시 돈다. dangling citation은 답변이 있는
     # 정상 생성이라 다시 돌리면 돈만 더 쓰고 결과가 바뀐다.
@@ -488,6 +531,9 @@ def main_batch(pipeline_factory=None, tag: str = "") -> int:
     cfg = load()
     participants = select_participants(load_participants(), arg_value("--participants"))
 
+    if "--list-models" in sys.argv:
+        return list_models(participants)
+
     unresolved = [p["model"] for p in participants if str(p["model"]).startswith("TODO")]
     if unresolved and not fake_llm:
         print(f"participants.yaml에 모델 ID가 확정되지 않은 항목이 있습니다: {unresolved}")
@@ -527,7 +573,7 @@ def main_batch(pipeline_factory=None, tag: str = "") -> int:
 
 
 def main() -> int:
-    if "--participants" in sys.argv or "--smoke" in sys.argv:
+    if "--participants" in sys.argv or "--smoke" in sys.argv or "--list-models" in sys.argv:
         return main_batch()
 
     fake = "--fake" in sys.argv

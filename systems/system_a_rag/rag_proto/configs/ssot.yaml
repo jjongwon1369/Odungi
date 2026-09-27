@@ -1,9 +1,12 @@
 # SSOT (Single Source of Truth)
 # 명세서 §01 원칙 2: SSOT는 2단계로 적용한다. 지금은 Phase 2(integrated).
 #
-# v0.3 — 팀 저장소(Odungi)의 코퍼스 SSOT로 전환.
-#   근거: corpus/metadata/snapshot.json, corpus/CORPUS_V1.md §2
-#   개인 샘플(v1.4.2-branch, b9c05ca0)은 폐기한다. 비교 실험은 이 값으로만 한다.
+# v0.4 — 코퍼스 라벨을 C3 tier로 전환 (2026-09-27).
+#   근거: Odungi corpus/tiers/c3/metadata/snapshot.json (PR #8), 카톡 9/26 "3종으로만 확정".
+#   C3는 현재 main 스크립트로 snapshot_id가 그대로 재현되는 유일한 라벨이다.
+#   본문 검증: 9/22에 추출한 v0.1(corpus-v0.1:ee88b47a…)과 282개 문서의 text·source_spans·
+#   metadata가 전부 동일 — 달라진 건 snapshot_id·corpus_version 라벨뿐이다.
+# v0.3 — 팀 저장소(Odungi)의 코퍼스 SSOT로 전환. 개인 샘플(v1.4.2-branch, b9c05ca0)은 폐기.
 
 corpus:
   repo: DS-J-L/connectedhomeip              # project-chip 포크. origin은 snapshot.json 참조
@@ -14,8 +17,8 @@ corpus:
 
   # 같은 commit에서 Device Type 3개 → 6개 → 12개 코퍼스가 갈라진다.
   # commit만으로는 구분이 안 되므로 snapshot_id를 함께 기록한다.
-  corpus_version: "0.1"                     # v1.0 candidate. freeze_gate.json 기준
-  snapshot_id: "corpus-v0.1:ee88b47ac7a901be55e52cb8039314b740d312dbff6982eec65bc3af6a735680"
+  corpus_version: "0.1-c3"                  # C3 tier (v1.0 candidate 기반). tiers/c3/metadata/snapshot.json
+  snapshot_id: "corpus-c3:2f00a8077e434eb6657fb661112012abeceba70c0d1e0633e73f6b7b9c7afb8e"
   frozen: false                             # licensing_review / cross_review 미완
 
 phase: integrated
