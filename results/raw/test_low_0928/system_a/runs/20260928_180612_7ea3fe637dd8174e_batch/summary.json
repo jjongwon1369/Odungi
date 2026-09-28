@@ -1,0 +1,182 @@
+{
+  "per_model": {
+    "kimi-k3": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 4853,
+        "cache_creation": 87296,
+        "cache_read": 11776,
+        "output": 11546
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 28592,
+        "max": 50683
+      },
+      "billed_tokens": {
+        "uncached_input": 4853,
+        "cache_creation": 87296,
+        "cache_read": 11776,
+        "output": 11546
+      }
+    },
+    "claude-sonnet-5": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 175865,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 8777
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 21127,
+        "max": 39653
+      },
+      "billed_tokens": {
+        "uncached_input": 175865,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 8777
+      }
+    },
+    "gpt-6-sol": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 4671,
+        "cache_creation": 94869,
+        "cache_read": 0,
+        "output": 3210
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 20316,
+        "max": 39081
+      },
+      "billed_tokens": {
+        "uncached_input": 4671,
+        "cache_creation": 94869,
+        "cache_read": 0,
+        "output": 3210
+      }
+    },
+    "claude-opus-5-5": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 175945,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 22111
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 23988,
+        "max": 46456
+      },
+      "billed_tokens": {
+        "uncached_input": 175945,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 22111
+      }
+    },
+    "gpt-5.6-sol": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 4671,
+        "cache_creation": 94869,
+        "cache_read": 0,
+        "output": 5119
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 19791,
+        "max": 39077
+      },
+      "billed_tokens": {
+        "uncached_input": 4671,
+        "cache_creation": 94869,
+        "cache_read": 0,
+        "output": 5119
+      }
+    },
+    "deepseek-flash": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 93478,
+        "cache_creation": 0,
+        "cache_read": 12416,
+        "output": 61020
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 20298,
+        "max": 46905
+      },
+      "billed_tokens": {
+        "uncached_input": 93478,
+        "cache_creation": 0,
+        "cache_read": 12416,
+        "output": 61020
+      }
+    }
+  },
+  "skipped_participants": {},
+  "questions": 40,
+  "runs": 1,
+  "query_mode": "simple",
+  "corpus_commit": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+  "corpus_snapshot": "corpus-c3:2f00a8077e434eb6657fb661112012abeceba70c0d1e0633e73f6b7b9c7afb8e",
+  "corpus_version": "0.1-c3",
+  "config_hash": "7ea3fe637dd8174e",
+  "code_commit": "defa7aba69e7e79a28d33e7c924d73e9efe1c7bd",
+  "code_dirty": false,
+  "code_dirty_files": [],
+  "code_commits_all": [
+    "fefff7cd19de655ea90390e41843a6f79a830b86",
+    "defa7aba69e7e79a28d33e7c924d73e9efe1c7bd"
+  ],
+  "fake_llm": false
+}

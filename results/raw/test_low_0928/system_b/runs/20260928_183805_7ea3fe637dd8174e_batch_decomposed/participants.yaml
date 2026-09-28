@@ -1,0 +1,89 @@
+# 참가자 LLM 7종 — 9/24 회의 확정, 9/26 멘토님께 보낸 API 예산 요청으로 최종 확인
+# gpt-6-astra는 참가자가 아니다. System C 위키 구축(컴파일) 전용이다(9/28 팀 확인).
+#   (Odungi meetings/2026-09-24.md, 멘토 요청 메시지 "2. 본실험 참가자 LLM API")
+# 답변 레코드의 model 필드에는 아래 model 값이 그대로 기록된다.
+# System C(LLM Wiki)와 model 표기가 같아야 논문 표를 합칠 수 있으니 정채희님과 맞출 것.
+#
+# model 이 "TODO"로 시작하면 run_eval 이 실행 전에 거부한다(가짜 모드 제외).
+# 키는 api_key_env 에 적힌 환경변수(.env 가능)에서 읽는다.
+#
+# 엔드포인트: base_url(주소 직접) → base_url_env(주소가 든 환경변수 이름) → 제공자 공식 주소.
+#   범용 OPENAI_BASE_URL / ANTHROPIC_BASE_URL 은 일부러 읽지 않는다. 개발 중 쓰던 Azure
+#   게이트웨이는 이동수님 쪽 테스트용(카톡 9/23 13:36 "쓴만큼 내는거임", 13:42 "테스트용으로")이라,
+#   그 주소가 .env에 남아 있으면 본실험 호출이 그리로 과금될 수 있기 때문이다.
+#   멘토님이 주실 엔드포인트가 모델 7개 공용 주소 하나라면, 각 항목에
+#   base_url_env: MENTOR_BASE_URL 을 넣고(필요하면 provider도 openai_compatible로) .env에 주소를 둔다.
+#
+# max_tokens: thinking/추론 토큰도 여기에 포함되는 모델이 많아 2048이면 본문 없이 잘린다.
+# temperature: null 이면 아예 보내지 않는다. Anthropic 쪽은 보내면 400이라 항상 생략된다.
+#   GPT-6 계열은 effort가 none이 아니면 temperature를 빼야 한다(OpenAI "Model guidance":
+#   "When reasoning effort is not none, remove temperature, top_p, and top_logprobs").
+#   effort를 비워도 기본값 medium이라 역시 빼야 한다. 그래서 GPT 참가자는 모두 temperature: null이다.
+# effort: 추론 강도. Anthropic은 output_config.effort, OpenAI 계열은 reasoning_effort로 보낸다.
+#   비우면 보내지 않아 모델 기본값을 쓴다: GPT-6 Luna는 medium(none·low·medium·high·xhigh·max 지원),
+#   Opus 5.5는 medium, Sonnet 5는 high(low~max 지원). 추론 토큰은 출력 토큰으로 과금된다.
+#   출처: OpenAI 모델 페이지(gpt-6-luna), Anthropic API 레퍼런스.
+#   [9/28 팀 결정] 추론 모델은 일단 '라이트'(effort: low)로 고정한다. 추론 강도를 모델마다 기본값에 두면
+#   모델 비교에 추론 예산 차이가 섞이기 때문이다. 7종 모두 low다.
+#
+# [미결] System C는 temperature·max_tokens를 보내지 않는다(run_agent.py 270~275줄).
+#   A/B/C 조건을 맞추려면 정채희님과 합의 후 여기서 통일할 것.
+
+defaults:
+  max_tokens: 16000
+
+participants:
+  # --- 초저가
+  # gpt-5.6-luna는 위키 컴파일 모델이지 참가자가 아니다
+  #   (멘토 요청 "현재 저희 위키는 저가 모델(gpt-5.6-luna)로 컴파일된 상태").
+  - model: gpt-6-luna
+    provider: openai
+    effort: low
+    temperature: null   # effort가 none이 아니라 보내면 거부된다
+
+  # --- 저가
+  # 모델 ID·추론 설정은 제공자 문서 기준(9/28). 키를 넣은 뒤 --list-models·--smoke로 확인할 것.
+  # DeepSeek: 9/10부터 V4 Flash가 V4.1 Flash로 바뀌었다(API 변경 기록). 현재 이름은 deepseek-flash이고
+  #   예전 이름 deepseek-v4-flash도 V4.1 Flash로 연결된다. 이름에 버전이 없어 자동으로 올라갈 수 있으니
+  #   실행 날짜를 결과와 함께 남길 것. 추론 모드가 기본으로 켜져 있고 기본 강도 high, low·high·max 지원.
+  #   추론 모드에서 temperature는 오류 없이 무시된다(Thinking Mode 문서). 학교망은 DeepSeek 접속을 막는다(9/28).
+#   출력 상한은 max_tokens로만 받는다. max_completion_tokens는 오류 없이 무시돼 상한이 64K가 된다.
+  - model: deepseek-flash
+    provider: openai_compatible
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+    effort: low
+    temperature: null
+    max_tokens_param: max_tokens
+
+  # Kimi: K3 빠른 시작 문서 기준. 추론은 항상 켜져 있고 reasoning_effort는 low·high·max(기본 max).
+  #   temperature는 1.0 고정이라 바꿀 수 없다. 주소는 국제판 — 중국판(.cn)에서 받은 키면 바꿀 것.
+  #   이 계정은 분당 요청 3회 제한이다(9/28 B 실행 중 429 "organization max RPM: 3"). System B는 문항당
+  #   분해·생성 2회라 문항 시작 사이를 50초 벌린다. 기다리는 시간은 답변 지연 기록에 들어가지 않는다.
+  - model: kimi-k3
+    provider: openai_compatible
+    base_url: https://api.moonshot.ai/v1
+    api_key_env: MOONSHOT_API_KEY
+    effort: low
+    temperature: null
+    min_question_interval_s: 50
+
+  # --- 중간
+  - model: claude-sonnet-5
+    provider: anthropic
+    effort: low
+
+  - model: gpt-6-sol
+    provider: openai
+    effort: low
+    temperature: null
+
+  # --- 고급
+  - model: claude-opus-5-5
+    provider: anthropic
+    effort: low
+
+  - model: gpt-5.6-sol
+    provider: openai
+    effort: low
+    temperature: null
