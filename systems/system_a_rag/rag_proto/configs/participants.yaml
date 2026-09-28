@@ -15,8 +15,13 @@
 #
 # max_tokens: thinking/추론 토큰도 여기에 포함되는 모델이 많아 2048이면 본문 없이 잘린다.
 # temperature: null 이면 아예 보내지 않는다. Anthropic 쪽은 보내면 400이라 항상 생략된다.
-# effort: Anthropic 전용. 비우면 모델 기본값(Opus 5.5는 medium, Sonnet 5는 high).
-#   출처: Anthropic API 레퍼런스. 팀 자료엔 effort 언급 없음 → 고정 여부 팀 결정 필요.
+#   GPT-6 계열은 effort가 none이 아니면 temperature를 빼야 한다(OpenAI "Model guidance":
+#   "When reasoning effort is not none, remove temperature, top_p, and top_logprobs").
+#   effort를 비우면 기본값 medium이라 역시 빼야 한다 → gpt-6-sol·gpt-5.6-sol도 effort 결정 때 함께 정할 것.
+# effort: 추론 강도. Anthropic은 output_config.effort, OpenAI 계열은 reasoning_effort로 보낸다.
+#   비우면 보내지 않아 모델 기본값을 쓴다: GPT-6 Luna는 medium(none·low·medium·high·xhigh·max 지원),
+#   Opus 5.5는 medium, Sonnet 5는 high(low~max 지원). 추론 토큰은 출력 토큰으로 과금된다.
+#   출처: OpenAI 모델 페이지(gpt-6-luna), Anthropic API 레퍼런스. 본실험 값은 팀 결정 필요.
 #
 # [미결] System C는 temperature·max_tokens를 보내지 않는다(run_agent.py 270~275줄).
 #   A/B/C 조건을 맞추려면 정채희님과 합의 후 여기서 통일할 것.
@@ -30,6 +35,10 @@ participants:
   #   (멘토 요청 "현재 저희 위키는 저가 모델(gpt-5.6-luna)로 컴파일된 상태").
   - model: gpt-6-luna
     provider: openai
+    # 비용을 아끼려고 1모델 시험을 low로 돌린다(9/28). 다른 참가자는 기본값 그대로라,
+    # 본실험 전에 9/29 회의 결정에 맞춰 모든 참가자 값을 함께 정할 것.
+    effort: low
+    temperature: null   # effort가 none이 아니라 보내면 거부된다
 
   # --- 저가
   # DeepSeek·Kimi는 팀 자료에 API ID·base_url 근거가 없다(견적표는 카톡에 사진으로만 있음).

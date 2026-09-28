@@ -22,6 +22,10 @@ SSOT: `corpus/tiers/c3/metadata/snapshot.json` 의 commit / snapshot_id 를 `rag
 다른 위치에 editable로 설치한 venv를 쓰면 그쪽 코드가 import된다. 이때는 명령 앞에 `PYTHONPATH=src`를 붙인다.
 배치 첫 줄에 찍히는 `코드: <경로> @ <커밋>`의 경로가 이 폴더인지 확인한다.
 
+검색 모델(bge-m3, reranker)은 버전을 고정하지 않고 이름으로 불러, 켤 때마다 허깅페이스에서 새 버전을 확인한다.
+색인을 만든 캐시 버전으로 고정하려면 배치 명령 앞에 `HF_HUB_OFFLINE=1`을 붙인다(접속 0회, 검색 결과 동일 확인).
+`--list-models`는 조직 단위 목록이라 키 권한에 따라 실패하거나 실제 호출 가능 여부와 다를 수 있다. 판정은 `--smoke`로 한다.
+
 ### 0. 준비 (한 번)
 
 | 단계 | 명령 | 비고 |
@@ -61,6 +65,7 @@ python ../../system_b_decomposition_rag/pipeline/run_batch_decomposed.py --parti
 ```
 
 - 중간에 끊기면 같은 명령에 `--resume runs/<폴더>`를 붙인다. 실패한 문항만 다시 돈다.
+  B 폴더는 반드시 B 스크립트로 이어 돌린다(다른 러너로 이으면 배치가 `query_mode`를 대조해 멈춘다).
 - 참가자 일부만 돌리려면 `--participants claude-sonnet-5,gpt-6-sol`처럼 쓴다.
 - 종료 코드가 1이면 실패 행이나 건너뛴 참가자가 있다는 뜻이다(`summary.json`의 `skipped_participants`).
 
@@ -75,6 +80,7 @@ python ../../system_b_decomposition_rag/pipeline/run_batch_decomposed.py --parti
 | `invocations.jsonl` | 실행할 때마다 한 줄(시각, 코드 커밋, 참가자, 회차) |
 | `failed_attempts.jsonl` | 이어하기로 다시 돌린 실패 시도. 채점 대상은 아니지만 과금은 됐다 |
 | `eval.jsonl` | 행마다 인용 무결성·기권·식별자 점검 결과 |
+| `calls.jsonl` | 문항 시도마다 LLM 호출별 원본 usage·finish_reason, B는 하위질의·분해 원문·파싱 실패 여부. `invocation`으로 이어하기 재시도를 구분한다. 채점 대상 아님 |
 | `participants.yaml` | 이 실행에 쓴 참가자 설정 사본 |
 
 ### 예상 시간 (Mac 노트북 MPS, 1회차 = 참가자 7 × 40문항)

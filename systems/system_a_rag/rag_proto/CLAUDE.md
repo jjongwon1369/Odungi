@@ -195,13 +195,30 @@ col.query(query_embeddings=[[...]], n_results=k,
 - **OpenAI와 Anthropic은 토큰 의미가 반대다.** OpenAI `prompt_tokens`는 캐시된
   토큰을 포함하고, Anthropic `input_tokens`는 제외한다. 그대로 옮겨 담으면
   캐시 적중분이 이중 계산된다.
+- **OpenAI도 GPT-5.6부터 캐시 쓰기를 과금한다.** 기본 입력 요율의 1.25배이고
+  `prompt_tokens_details.cache_write_tokens`로 보고된다(1,024토큰 이상 프롬프트에서 자동).
+  이 필드를 안 읽으면 쓰기분이 `uncached_input`에 섞인다. `_openai_cache_write_tokens()`가 읽는다.
+- **GPT-6는 effort가 `none`이 아니면 temperature를 받지 않는다.** effort를 비워도 기본값
+  medium이라 마찬가지다. 해당 참가자는 `temperature: null`로 둔다.
+- **유니코드 정규식의 `\b`는 한글 조사 앞에서 경계를 못 잡는다.** "0x0202입니다"에서
+  식별자를 놓친다. `extract_identifiers()`는 `re.ASCII`로 찾는다(코퍼스 청크·문서 결과는 동일).
+- **색인이 없는 폴더에서 돌리면 벡터 검색이 오류 없이 0건이다.** Chroma가 빈 컬렉션을 만들어
+  BM25만으로 검색한 결과가 정상처럼 남는다. `Retriever`가 색인 청크 수를 대조해 멈춘다.
+- **A와 B 결과 폴더는 (qid, model, run)으로 구분되지 않는다.** B 폴더를 `rag_proto.run_eval`로
+  `--resume`하면 A 행이 섞인다. 배치가 기존 행의 `query_mode`를 대조해 멈춘다.
+- **검색 모델은 이름으로만 불러 켤 때마다 허깅페이스에서 새 버전을 확인한다.** 상류 버전이 바뀌면
+  색인과 다른 임베더로 질의하게 된다. 배치는 `HF_HUB_OFFLINE=1`로 캐시 스냅샷에 고정한다(접속 0회 확인).
+- **배치의 `calls.jsonl`에 호출별 원본 usage·finish_reason·B 하위질의가 남는다.** `AnswerRecord`는
+  4열만 담으므로, 새 제공자·게이트웨이의 4열 매핑은 이 파일의 원본과 대조해 확인한다.
 
 ## 미해결 사항
 
 - DeepSeek·Kimi 모델 ID와 접속 주소 (`participants.yaml`의 `TODO-`). API 키를 넣은 뒤
   `run_eval --list-models`로 확정한다. `TODO-`로 남은 모델은 배치가 실행 전에 막는다.
-- 생성 조건(temperature·effort) 팀 확정 전. 현재값: GPT·DeepSeek·Kimi에 temperature 0.0,
-  모든 모델에 max_tokens 16000, Claude effort는 모델 기본값. `--smoke`로 수용 여부를 확인할 것.
+- 생성 조건(temperature·effort) 팀 확정 전. 현재값: `gpt-6-luna`는 temperature 생략, 나머지
+  GPT·DeepSeek·Kimi는 0.0(`gpt-6-sol`·`gpt-5.6-sol`은 effort를 정할 때 temperature도 함께 정할 것),
+  모든 모델에 max_tokens 16000. effort(추론 강도)는 `gpt-6-luna`만 low(1모델 시험용), 나머지는
+  모델 기본값(GPT-6 Luna medium, Opus 5.5 medium, Sonnet 5 high). 본실험 전에 참가자 전체 값을 정할 것.
 - System B의 질문 분해를 참가자 모델이 할지 고정 모델이 할지 (9/29 회의 안건). 지금은 참가자 모델.
 - 리랭커 ablation을 켜고 끌 설정이 없다(위 "알려진 함정" 참고). 실험에 넣기로 하면 추가한다.
 - 재구축 시간(수행계획서 정량 지표, RQ3)을 재지 않는다. 임베딩 단계만 시간을 남긴다.

@@ -208,6 +208,7 @@ class Retriever:
         self.bm25 = BM25Index(self.chunks)
         self.embedder: Embedder = HashEmbedder() if fake else BGEM3Embedder(cfg)
         self._check_index_dim()
+        self._check_index_size()
         r = cfg.pipeline["retrieval"]
         self.reranker = (
             FakeReranker()
@@ -241,6 +242,22 @@ class Retriever:
                 f" 질의 임베더는 {self.embedder.dim}차원({self.embedder.name})입니다.\n"
                 "  → 검색은 실제로 하고 LLM만 가짜로 쓰려면 --fake 대신 --fake-llm 을 쓰세요.\n"
                 "  → 전부 가짜로 돌리려면 s3_embed --fake 부터 다시 실행하세요."
+            )
+
+    def _check_index_size(self) -> None:
+        """
+        벡터 색인의 청크 수가 chunks.jsonl과 같은지 본다.
+
+        색인이 없는 폴더에서 돌리면 Chroma가 빈 컬렉션을 만들어 벡터 검색이 오류 없이
+        0건을 돌려준다. 그러면 BM25만으로 검색한 결과가 정상처럼 기록된다.
+        """
+        from .s4_index import get_collection
+
+        indexed = get_collection(self.cfg).count()
+        if indexed != len(self.chunks):
+            raise RuntimeError(
+                f"벡터 색인 청크 수({indexed})가 chunks.jsonl({len(self.chunks)})과 다릅니다. "
+                "데이터가 있는 폴더에서 실행했는지 확인하고, 아니면 s3_embed → s4_index --reset으로 다시 만드세요."
             )
 
     def retrieve(self, query: str, where: dict | None = None) -> RetrievalResult:

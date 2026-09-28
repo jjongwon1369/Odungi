@@ -10,10 +10,11 @@ top-k 청크 → LLM → 답변 + 인용
   - 각 주장 끝에 근거 [chunk_id]를 표기할 것
 
 토큰은 반드시 4열로 기록한다. OpenAI usage 필드 매핑:
-  prompt_tokens - cached_tokens → uncached_input
-  (보고 없음)                    → cache_creation
-  prompt_tokens_details.cached_tokens → cache_read
-  completion_tokens             → output
+  prompt_tokens - cached - cache_write      → uncached_input
+  prompt_tokens_details.cache_write_tokens  → cache_creation  (게이트웨이는 최상위 cache_creation_input_tokens)
+  prompt_tokens_details.cached_tokens       → cache_read      (DeepSeek prompt_cache_hit_tokens, Kimi 최상위 cached_tokens)
+  completion_tokens (추론 토큰 포함)         → output
+호출마다 원본 usage를 raw_calls에 남긴다. 배치는 이것을 calls.jsonl로 기록해 매핑을 사후에 대조한다.
 
 실행:
     python -m rag_proto.s6_generate --selftest        # 가짜 LLM으로 배관만 확인
@@ -44,7 +45,10 @@ contain the answer, reply exactly: "제공된 문서에서 확인되지 않음"
 hex IDs (e.g. OnOff, TemperatureSetpoint, 0x0201) must appear exactly as written \
 in the context. Never translate, reformat or guess them.
 3. Cite every claim. Put the supporting [chunk_id] at the end of each sentence \
-that makes a factual claim. Use only chunk_ids that appear in the context.
+that makes a factual claim. Use only chunk_ids that appear in the context. \
+Write each chunk_id in its own square brackets, e.g. [chunk_a][chunk_b]. Never \
+put two chunk_ids, backticks or any other text inside one pair of brackets, and \
+never use square brackets for anything else (such as hex IDs or code).
 4. Be concise. Do not add caveats, summaries of your own process, or \
 recommendations that are not in the context.
 
@@ -113,6 +117,23 @@ def _openai_cached_tokens(u) -> int:
     return 0
 
 
+def _openai_cache_write_tokens(u) -> int:
+    """
+    캐시 쓰기 토큰. OpenAI는 GPT-5.6 이후 prompt_tokens_details.cache_write_tokens로
+    보고하고 기본 입력 요율의 1.25배로 과금한다(OpenAI 프롬프트 캐시 문서). Azure
+    게이트웨이는 최상위 cache_creation_input_tokens 확장 필드를 쓴다(System C
+    run_agent.py도 이 필드를 읽는다). 못 찾으면 0 — 쓰기분이 uncached_input으로 잡힌다.
+    """
+    details = getattr(u, "prompt_tokens_details", None)
+    for value in (
+        getattr(details, "cache_write_tokens", None) if details else None,
+        getattr(u, "cache_creation_input_tokens", None),
+    ):
+        if value:
+            return int(value)
+    return 0
+
+
 class OpenAIClient:
     """
     OpenAI 및 OpenAI 호환 엔드포인트(DeepSeek, Kimi 등 base_url만 다른 곳)용.
@@ -127,11 +148,9 @@ class OpenAIClient:
     두 번 계산되어 비용이 부풀려진다. 베이스라인 논문이 판정을 포기한 것과
     같은 종류의 오류다.
 
-    OpenAI 본가는 캐시 *쓰기* 토큰을 보고하지 않지만, 팀이 쓰는 Azure OpenAI
-    게이트웨이는 cache_creation_input_tokens 확장 필드로 보고한다(System C
-    run_agent.py도 이 필드를 읽는다). 있으면 cache_creation에 넣고, 없으면 0이다.
-    prompt_tokens가 캐시 읽기·쓰기를 모두 포함한다는 OpenAI 관례를 가정해
-    둘 다 빼서 uncached를 구한다 — 이 가정은 --smoke의 원본 usage 출력으로 확인할 것.
+    캐시 *쓰기* 토큰은 _openai_cache_write_tokens가 읽어 cache_creation에 넣는다.
+    OpenAI 문서상 prompt_tokens는 캐시 읽기·쓰기를 모두 포함하므로 둘 다 빼서
+    uncached를 구한다 — 호환 엔드포인트도 같은지는 --smoke의 원본 usage 출력으로 확인할 것.
     """
 
     def __init__(
@@ -142,6 +161,7 @@ class OpenAIClient:
         base_url: str | None = None,
         api_key_env: str = "OPENAI_API_KEY",
         max_retries: int = 5,
+        effort: str | None = None,
     ):
         from openai import OpenAI
 
@@ -149,6 +169,10 @@ class OpenAIClient:
         self.max_tokens = max_tokens
         # 추론형 모델 일부는 기본값 외 temperature를 거부한다. None이면 아예 안 보낸다.
         self.temperature = temperature
+        # 추론 강도(reasoning_effort). None이면 보내지 않아 모델 기본값을 쓴다
+        # (GPT-6 Luna는 medium). 추론 토큰은 출력 토큰으로 과금된다.
+        self.effort = effort
+        self.raw_calls: list[dict] = []
         self.client = OpenAI(
             api_key=require_api_key(api_key_env),
             base_url=base_url,
@@ -159,6 +183,8 @@ class OpenAIClient:
         kwargs = {}
         if self.temperature is not None:
             kwargs["temperature"] = self.temperature
+        if self.effort:
+            kwargs["reasoning_effort"] = self.effort
         resp = self.client.chat.completions.create(
             model=self.name,
             max_completion_tokens=self.max_tokens,
@@ -175,13 +201,24 @@ class OpenAIClient:
         self.last_raw_usage = u
         prompt_tokens = getattr(u, "prompt_tokens", 0) or 0
         cached = _openai_cached_tokens(u)
-        created = getattr(u, "cache_creation_input_tokens", 0) or 0  # 게이트웨이 확장 필드
+        created = _openai_cache_write_tokens(u)
+        residual = prompt_tokens - cached - created
+        if residual < 0:
+            # prompt_tokens가 캐시분을 제외하는 엔드포인트라는 뜻이다. 0으로 잘리는 입력이 생긴다
+            print(f"\n경고: {self.name} prompt_tokens({prompt_tokens}) < 캐시 읽기({cached})+쓰기({created}). "
+                  "이 엔드포인트의 usage 의미를 calls.jsonl로 확인할 것", file=sys.stderr)
         usage = TokenUsage(
-            uncached_input=max(prompt_tokens - cached - created, 0),
+            uncached_input=max(residual, 0),
             cache_creation=created,
             cache_read=cached,
             output=getattr(u, "completion_tokens", 0) or 0,
         )
+        self.raw_calls.append({
+            "finish_reason": choice.finish_reason,
+            "refusal": getattr(choice.message, "refusal", None),
+            "usage": u.model_dump() if hasattr(u, "model_dump") else None,
+            "mapped": usage.model_dump(),
+        })
         if not text.strip():
             raise GenerationError(f"빈 답변 (finish_reason={choice.finish_reason})", usage)
         return text, usage
@@ -213,6 +250,7 @@ class AnthropicClient:
         self.name = model
         self.max_tokens = max_tokens
         self.effort = effort  # None이면 모델 기본값(Opus 5.5는 medium, Sonnet 5는 high)
+        self.raw_calls: list[dict] = []
         self.client = anthropic.Anthropic(
             api_key=require_api_key(api_key_env), base_url=base_url, max_retries=max_retries
         )
@@ -238,6 +276,11 @@ class AnthropicClient:
             cache_read=u.cache_read_input_tokens or 0,
             output=u.output_tokens or 0,
         )
+        self.raw_calls.append({
+            "finish_reason": resp.stop_reason,
+            "usage": u.model_dump() if hasattr(u, "model_dump") else None,
+            "mapped": usage.model_dump(),
+        })
         if resp.stop_reason == "refusal":
             category = getattr(resp.stop_details, "category", None) if resp.stop_details else None
             raise GenerationError(f"refusal (category={category})", usage)
@@ -349,6 +392,7 @@ def make_client(cfg: Config, fake: bool = False, participant: dict | None = None
         temperature=participant.get("temperature", gen.get("temperature", 0.0)),
         base_url=base_url,
         api_key_env=api_key_env,
+        effort=participant.get("effort"),
     )
 
 
