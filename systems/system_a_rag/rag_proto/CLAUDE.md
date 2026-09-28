@@ -197,6 +197,8 @@ col.query(query_embeddings=[[...]], n_results=k,
   참가자 설정의 `max_tokens_param: max_tokens`로 보낸다. OpenAI 추론 모델과 Kimi는 `max_completion_tokens`를 쓴다.
 - **끝까지 생성되지 않은 응답은 오류 행으로 남긴다.** finish_reason이 stop이 아니거나 stop_reason이
   end_turn·stop_sequence가 아니면 GenerationError(과금분 보존)이고, `--resume`이 다시 돈다.
+- **Kimi 계정은 분당 요청 3회 제한이다.** System B는 문항당 2회 호출이라 바로 429가 난다(9/28).
+  `min_question_interval_s: 50`으로 문항 시작 사이를 벌린다. 기다리는 시간은 latency_ms에 들어가지 않는다.
 - **학교망은 DeepSeek 접속을 막는다.** DNS는 풀리지만 연결이 안 된다(9/28 확인, 핫스팟에서는 정상).
   DeepSeek 참가자를 돌릴 때는 다른 네트워크를 쓴다.
 - **OpenAI와 Anthropic은 토큰 의미가 반대다.** OpenAI `prompt_tokens`는 캐시된

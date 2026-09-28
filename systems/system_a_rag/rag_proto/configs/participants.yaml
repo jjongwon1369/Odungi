@@ -58,12 +58,15 @@ participants:
 
   # Kimi: K3 빠른 시작 문서 기준. 추론은 항상 켜져 있고 reasoning_effort는 low·high·max(기본 max).
   #   temperature는 1.0 고정이라 바꿀 수 없다. 주소는 국제판 — 중국판(.cn)에서 받은 키면 바꿀 것.
+  #   이 계정은 분당 요청 3회 제한이다(9/28 B 실행 중 429 "organization max RPM: 3"). System B는 문항당
+  #   분해·생성 2회라 문항 시작 사이를 50초 벌린다. 기다리는 시간은 답변 지연 기록에 들어가지 않는다.
   - model: kimi-k3
     provider: openai_compatible
     base_url: https://api.moonshot.ai/v1
     api_key_env: MOONSHOT_API_KEY
     effort: low
     temperature: null
+    min_question_interval_s: 50
 
   # --- 중간
   - model: claude-sonnet-5
