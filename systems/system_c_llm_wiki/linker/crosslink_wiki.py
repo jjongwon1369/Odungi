@@ -17,7 +17,9 @@ import re
 from pathlib import Path
 
 SCOPE_JSON = Path("corpus/metadata/scope.json")
-WIKI_ROOT = Path("systems/system_c_llm_wiki/wiki")
+import os as _os
+# 환경변수 WIKI_ROOT 로 대상 위키를 바꿀 수 있다 (컴파일 모델별 비교용)
+WIKI_ROOT = Path(_os.environ.get("WIKI_ROOT", "systems/system_c_llm_wiki/wiki"))
 
 # compile_wiki.py 와 동일
 SHARED_IMPL_DIR_TO_BASE = {

@@ -20,3 +20,9 @@ run_compile2.sh
 .pr_body.md
 check_endpoint.py
 endpoint_check.txt
+build_wiki_variants.sh
+build_log.txt
+build_astra.log
+build_all.log
+build_4omini.log
+__pycache__/
