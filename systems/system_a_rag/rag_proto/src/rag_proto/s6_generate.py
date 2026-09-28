@@ -162,6 +162,7 @@ class OpenAIClient:
         api_key_env: str = "OPENAI_API_KEY",
         max_retries: int = 5,
         effort: str | None = None,
+        max_tokens_param: str = "max_completion_tokens",
     ):
         from openai import OpenAI
 
@@ -172,6 +173,9 @@ class OpenAIClient:
         # 추론 강도(reasoning_effort). None이면 보내지 않아 모델 기본값을 쓴다
         # (GPT-6 Luna는 medium). 추론 토큰은 출력 토큰으로 과금된다.
         self.effort = effort
+        # 출력 상한을 보내는 파라미터 이름. OpenAI 추론 모델은 max_completion_tokens만 받고,
+        # DeepSeek은 max_tokens만 읽는다(max_completion_tokens는 오류 없이 무시돼 상한이 64K가 된다)
+        self.max_tokens_param = max_tokens_param
         self.raw_calls: list[dict] = []
         self.client = OpenAI(
             api_key=require_api_key(api_key_env),
@@ -185,9 +189,9 @@ class OpenAIClient:
             kwargs["temperature"] = self.temperature
         if self.effort:
             kwargs["reasoning_effort"] = self.effort
+        kwargs[self.max_tokens_param] = self.max_tokens
         resp = self.client.chat.completions.create(
             model=self.name,
-            max_completion_tokens=self.max_tokens,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt},
@@ -221,6 +225,12 @@ class OpenAIClient:
         })
         if not text.strip():
             raise GenerationError(f"빈 답변 (finish_reason={choice.finish_reason})", usage)
+        if choice.finish_reason not in (None, "stop"):
+            # length·content_filter·insufficient_system_resource·aborted: 중간에 끊긴 답이라 채점하면 안 된다.
+            # 오류 행(과금분 보존)으로 남겨 --resume이 다시 돌게 한다. 앞부분은 오류 문구에 남긴다
+            raise GenerationError(
+                f"끝까지 생성되지 않음 (finish_reason={choice.finish_reason}) 앞부분: {text[:80]!r}", usage
+            )
         return text, usage
 
 
@@ -286,6 +296,11 @@ class AnthropicClient:
             raise GenerationError(f"refusal (category={category})", usage)
         if not text.strip():
             raise GenerationError(f"빈 답변 (stop_reason={resp.stop_reason})", usage)
+        if resp.stop_reason not in ("end_turn", "stop_sequence"):
+            # max_tokens·model_context_window_exceeded 등: 끊긴 답이라 오류 행으로 남긴다(과금분 보존)
+            raise GenerationError(
+                f"끝까지 생성되지 않음 (stop_reason={resp.stop_reason}) 앞부분: {text[:80]!r}", usage
+            )
         return text, usage
 
 
@@ -393,6 +408,7 @@ def make_client(cfg: Config, fake: bool = False, participant: dict | None = None
         base_url=base_url,
         api_key_env=api_key_env,
         effort=participant.get("effort"),
+        max_tokens_param=participant.get("max_tokens_param", "max_completion_tokens"),
     )
 
 

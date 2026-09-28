@@ -193,6 +193,10 @@ col.query(query_embeddings=[[...]], n_results=k,
   영어 질의에서는 2위까지 회복. Matter 식별자는 접두사 공유가 흔하므로
   (`Occupied`/`Unoccupied`, `Min`/`AbsMin`) 구조적 약점이다.
   → 리랭커 ablation 조건을 실험에 포함할 것. Q-07, Q-10이 해당 사례.
+- **DeepSeek은 `max_completion_tokens`를 오류 없이 무시한다.** 그러면 출력 상한이 16000이 아니라 64K가 된다.
+  참가자 설정의 `max_tokens_param: max_tokens`로 보낸다. OpenAI 추론 모델과 Kimi는 `max_completion_tokens`를 쓴다.
+- **끝까지 생성되지 않은 응답은 오류 행으로 남긴다.** finish_reason이 stop이 아니거나 stop_reason이
+  end_turn·stop_sequence가 아니면 GenerationError(과금분 보존)이고, `--resume`이 다시 돈다.
 - **학교망은 DeepSeek 접속을 막는다.** DNS는 풀리지만 연결이 안 된다(9/28 확인, 핫스팟에서는 정상).
   DeepSeek 참가자를 돌릴 때는 다른 네트워크를 쓴다.
 - **OpenAI와 Anthropic은 토큰 의미가 반대다.** OpenAI `prompt_tokens`는 캐시된

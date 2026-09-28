@@ -47,12 +47,14 @@ participants:
   #   예전 이름 deepseek-v4-flash도 V4.1 Flash로 연결된다. 이름에 버전이 없어 자동으로 올라갈 수 있으니
   #   실행 날짜를 결과와 함께 남길 것. 추론 모드가 기본으로 켜져 있고 기본 강도 high, low·high·max 지원.
   #   추론 모드에서 temperature는 오류 없이 무시된다(Thinking Mode 문서). 학교망은 DeepSeek 접속을 막는다(9/28).
+#   출력 상한은 max_tokens로만 받는다. max_completion_tokens는 오류 없이 무시돼 상한이 64K가 된다.
   - model: deepseek-flash
     provider: openai_compatible
     base_url: https://api.deepseek.com
     api_key_env: DEEPSEEK_API_KEY
     effort: low
     temperature: null
+    max_tokens_param: max_tokens
 
   # Kimi: K3 빠른 시작 문서 기준. 추론은 항상 켜져 있고 reasoning_effort는 low·high·max(기본 max).
   #   temperature는 1.0 고정이라 바꿀 수 없다. 주소는 국제판 — 중국판(.cn)에서 받은 키면 바꿀 것.
