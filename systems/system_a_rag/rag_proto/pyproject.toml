@@ -23,6 +23,7 @@ models = [
 ]
 llm = [
     "openai>=1.50",
+    "anthropic>=1.7",   # Claude 참가자(Sonnet 5, Opus 5.5). 1.7.0으로 검증
     "python-dotenv>=1.0",
 ]
 dev = [
