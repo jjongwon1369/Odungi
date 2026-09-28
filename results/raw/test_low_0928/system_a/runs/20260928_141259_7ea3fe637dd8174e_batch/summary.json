@@ -1,0 +1,46 @@
+{
+  "per_model": {
+    "gpt-6-luna": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 4671,
+        "cache_creation": 93666,
+        "cache_read": 1203,
+        "output": 2623
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 17589,
+        "max": 96910
+      },
+      "billed_tokens": {
+        "uncached_input": 4671,
+        "cache_creation": 93666,
+        "cache_read": 1203,
+        "output": 2623
+      }
+    }
+  },
+  "skipped_participants": {},
+  "questions": 40,
+  "runs": 1,
+  "query_mode": "simple",
+  "corpus_commit": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+  "corpus_snapshot": "corpus-c3:2f00a8077e434eb6657fb661112012abeceba70c0d1e0633e73f6b7b9c7afb8e",
+  "corpus_version": "0.1-c3",
+  "config_hash": "7ea3fe637dd8174e",
+  "code_commit": "5a2964ebed7e6671d808e77cf3e016c0773cb5ca",
+  "code_dirty": false,
+  "code_dirty_files": [],
+  "code_commits_all": [
+    "5a2964ebed7e6671d808e77cf3e016c0773cb5ca"
+  ],
+  "fake_llm": false
+}
