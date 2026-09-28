@@ -74,7 +74,7 @@
 | 검색 | BM25 50 + 벡터 50 → RRF → 재순위 top-5 | top-5도 논문과 동일 |
 | 임베딩 | `BAAI/bge-m3` | dense만 사용. 희소는 BM25 담당 |
 | 재순위 | `BAAI/bge-reranker-v2-m3` | 논문은 Cohere. 재순위기만 교체로 명시 |
-| 참가자 LLM | 8종, `configs/participants.yaml` | 모델 ID·접속 주소·호출 설정을 이 파일 하나에서 관리. A·B·C가 같은 참가자를 쓴다. 9/28 gpt-6-astra 추가, 추론 모델 effort low |
+| 참가자 LLM | 7종, `configs/participants.yaml` | 모델 ID·접속 주소·호출 설정을 이 파일 하나에서 관리. A·B·C가 같은 참가자를 쓴다. 추론 모델 effort low. gpt-6-astra는 C 위키 구축 전용이라 참가자가 아니다 |
 | B 질문 분해 | 참가자 모델이 각자 분해 | 9/28 평가 담당과 확정. 분해 능력까지 B 결과에 포함되고, 분해 토큰은 참가자 토큰에 합산한다 |
 
 **코퍼스 확장 계획**: Device Type 3개 → 6개 → 12개로 비교군을 만든다. 같은 commit에서
@@ -218,7 +218,7 @@ col.query(query_embeddings=[[...]], n_results=k,
 
 - DeepSeek(`deepseek-flash`, 실제 모델은 V4.1 Flash)·Kimi(`kimi-k3`) 설정은 제공자 문서 기준으로 채웠다(9/28). 키를 넣은 뒤
   `run_eval --list-models`와 `--smoke`로 ID와 effort·temperature 설정이 받아들여지는지 확인할 것.
-- 생성 조건: 9/28 팀 결정으로 추론 모델은 일단 effort low('라이트')로 고정하고 gpt-6-astra를 추가했다(8종).
+- 생성 조건: 9/28 팀 결정으로 이번 테스트는 추론 모델 effort low('라이트')로 고정한다. 본실험(회의 뒤)은 medium 예정.
   GPT·DeepSeek·Kimi는 temperature 생략(추론 모드에서 거부되거나 고정), 모든 모델에 max_tokens 16000.
 - 리랭커 ablation을 켜고 끌 설정이 없다(위 "알려진 함정" 참고). 실험에 넣기로 하면 추가한다.
 - 재구축 시간(수행계획서 정량 지표, RQ3)을 재지 않는다. 임베딩 단계만 시간을 남긴다.

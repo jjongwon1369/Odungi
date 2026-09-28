@@ -1,4 +1,5 @@
-# 참가자 LLM 8종 — 9/24 회의 확정 7종(9/26 멘토님께 보낸 API 예산 요청으로 최종 확인) + 9/28 gpt-6-astra 추가
+# 참가자 LLM 7종 — 9/24 회의 확정, 9/26 멘토님께 보낸 API 예산 요청으로 최종 확인
+# gpt-6-astra는 참가자가 아니다. System C 위키 구축(컴파일) 전용이다(9/28 팀 확인).
 #   (Odungi meetings/2026-09-24.md, 멘토 요청 메시지 "2. 본실험 참가자 LLM API")
 # 답변 레코드의 model 필드에는 아래 model 값이 그대로 기록된다.
 # System C(LLM Wiki)와 model 표기가 같아야 논문 표를 합칠 수 있으니 정채희님과 맞출 것.
@@ -23,7 +24,7 @@
 #   Opus 5.5는 medium, Sonnet 5는 high(low~max 지원). 추론 토큰은 출력 토큰으로 과금된다.
 #   출처: OpenAI 모델 페이지(gpt-6-luna), Anthropic API 레퍼런스.
 #   [9/28 팀 결정] 추론 모델은 일단 '라이트'(effort: low)로 고정한다. 추론 강도를 모델마다 기본값에 두면
-#   모델 비교에 추론 예산 차이가 섞이기 때문이다. 8종 모두 low다.
+#   모델 비교에 추론 예산 차이가 섞이기 때문이다. 7종 모두 low다.
 #
 # [미결] System C는 temperature·max_tokens를 보내지 않는다(run_agent.py 270~275줄).
 #   A/B/C 조건을 맞추려면 정채희님과 합의 후 여기서 통일할 것.
@@ -78,12 +79,6 @@ participants:
     effort: low
 
   - model: gpt-5.6-sol
-    provider: openai
-    effort: low
-    temperature: null
-
-  # 9/28 추가. none을 지원하지 않는다(low·medium·high·xhigh·max)
-  - model: gpt-6-astra
     provider: openai
     effort: low
     temperature: null
