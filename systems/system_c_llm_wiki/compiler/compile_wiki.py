@@ -71,7 +71,12 @@ SKIP_NAMES = {".DS_Store"}
 # API가 "지금 잠깐 과부하야, 나중에 다시 해봐" 같은 일시적인 에러를 낼 때
 # (503 UNAVAILABLE, 429 rate limit 등) 자동으로 몇 초 쉬었다가 재시도.
 # 이런 에러는 우리 코드 문제가 아니라 서버 쪽 일시적인 상태라 재시도하면 대부분 풀림.
-_TRANSIENT_ERROR_HINTS = ("503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "rate limit", "overloaded")
+_TRANSIENT_ERROR_HINTS = (
+    "503", "429", "UNAVAILABLE", "RESOURCE_EXHAUSTED", "rate limit", "overloaded",
+    # 큰 엔티티(수만 토큰 입력)에서 자주 나는 오류들. 재시도하면 대부분 성공한다.
+    "timeout", "timed out", "APITimeout", "APIConnection", "Connection error",
+    "502", "504", "Internal Server Error",
+)
 
 
 def _call_with_retries(fn, tries: int = 2, base_delay: int = 8, what: str = "API"):
@@ -116,7 +121,15 @@ def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: 
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("환경변수 OPENAI_API_KEY 가 설정되어 있지 않음")
-        client = OpenAI(api_key=api_key)
+        # 자체 게이트웨이/커스텀 엔드포인트를 쓰는 경우 base_url 을 지정한다.
+        # (OpenAI 공식 API 를 쓰면 이 변수를 비워두면 됨)
+        base_url = os.environ.get("OPENAI_BASE_URL") or None
+        # 큰 엔티티는 입력이 수만 토큰이라 기본 타임아웃으로는 부족하다.
+        timeout_s = float(os.environ.get("WIKI_COMPILER_TIMEOUT", "600"))
+        kwargs = {"api_key": api_key, "timeout": timeout_s, "max_retries": 3}
+        if base_url:
+            kwargs["base_url"] = base_url
+        client = OpenAI(**kwargs)
         resp = _call_with_retries(
             lambda: client.chat.completions.create(
                 model=model,
@@ -401,6 +414,7 @@ def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str) -> Path:
         f"source_paths: {source_paths}\n"
         f"commit_hash: {ssot_commit}\n"
         f"doc_type: {entity.kind}\n"
+        f"compiled_by: {MODEL_PROVIDER}/{MODEL_NAME}\n"
         "---\n\n"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
