@@ -288,10 +288,9 @@ def run_batch(
     try:
         for model_name in ordered_models:
             partial_path = partial_dir / f"{model_name}.jsonl"
+            # 재개 판정은 partial 파일만 기준으로 한다.
+            # answers.jsonl은 덮어써지므로 신뢰할 수 없다.
             done = _load_existing(partial_path)
-            # answers.jsonl에 이미 있는 것도 건너뜀
-            answers_path = base_dir / "answers.jsonl"
-            done |= _load_existing(answers_path)
 
             ok = err = abstained_count = 0
             model_start = time.time()
@@ -409,18 +408,18 @@ def run_batch(
         fail_f.close()
 
     # ---- 모든 partial 병합 → answers.jsonl ----
+    # --models와 무관하게 .partial/ 안의 모든 jsonl을 합친다.
+    # 일부 모델만 재실행해도 나머지 모델 답변이 사라지지 않는다.
     answers_path = base_dir / "answers.jsonl"
     merged = 0
     with open(answers_path, "w", encoding="utf-8") as out_f:
-        for model_name in ordered_models:
-            partial_path = partial_dir / f"{model_name}.jsonl"
-            if partial_path.exists():
-                with open(partial_path, encoding="utf-8") as pf:
-                    for line in pf:
-                        line = line.strip()
-                        if line:
-                            out_f.write(line + "\n")
-                            merged += 1
+        for partial_path in sorted(partial_dir.glob("*.jsonl")):
+            with open(partial_path, encoding="utf-8") as pf:
+                for line in pf:
+                    line = line.strip()
+                    if line:
+                        out_f.write(line + "\n")
+                        merged += 1
 
     finished_at = datetime.now(timezone.utc).isoformat()
 
