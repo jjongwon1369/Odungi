@@ -33,7 +33,9 @@ MODEL_NAME = os.environ.get("WIKI_COMPILER_MODEL", "TODO-내일-확정")
 
 CORPUS_RAW = Path("corpus/raw/connectedhomeip")   # 실제 파일이 이 밑에 있는 걸 확인함
 SCOPE_JSON = Path("corpus/metadata/scope.json")
-WIKI_ROOT = Path("systems/system_c_llm_wiki/wiki")
+# 기본 출력 위치. --wiki-root 로 바꿔서 여러 벌의 위키를 나란히 만들 수 있다
+# (컴파일 모델별 비교 실험용).
+WIKI_ROOT = Path(os.environ.get("WIKI_ROOT", "systems/system_c_llm_wiki/wiki"))
 
 # 코드가 공유되는데 scope.json만 봐서는 자동으로 못 찾아내는 2개 예외.
 # (mode-base-server, alarm-base-server 폴더는 특정 클러스터가 아니라
@@ -427,6 +429,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
+        "--wiki-root",
+        help="출력 위키 디렉터리 (기본 systems/system_c_llm_wiki/wiki). "
+             "컴파일 모델별로 다른 경로를 주면 여러 벌을 나란히 만들 수 있다.",
+    )
+    parser.add_argument(
         "--only",
         help="테스트용: 이 엔티티 key 하나만 실제로 컴파일 (예: --only 'base:Label'). "
              "먼저 --dry-run으로 key 목록을 확인한 뒤 쓰면 됨.",
@@ -443,6 +450,10 @@ def main():
              "(중간에 에러로 멈췄다가 재실행할 때 이미 끝난 것 다시 API 호출 안 하려고).",
     )
     args = parser.parse_args()
+
+    if args.wiki_root:
+        global WIKI_ROOT
+        WIKI_ROOT = Path(args.wiki_root)
 
     scope = load_scope()
     ssot_commit = scope.get("ssot_commit") or scope.get("repository", {}).get("commit_sha", "UNKNOWN")

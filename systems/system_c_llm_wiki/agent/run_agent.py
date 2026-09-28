@@ -223,7 +223,7 @@ def _sum_token_usage(a: dict, b: dict) -> dict:
 # 에이전트 루프
 # ---------------------------------------------------------------------------
 
-def run_agent(query: str, max_turns: int = 30, verbose: bool = False) -> dict:
+def run_agent(query: str, max_turns: int = 30, verbose: bool = False, model: str | None = None) -> dict:
     """
     에이전트 루프를 실행하고 결과 레코드를 반환한다.
 
@@ -239,7 +239,7 @@ def run_agent(query: str, max_turns: int = 30, verbose: bool = False) -> dict:
     }
     """
     client = _make_client()
-    model = _get_model()
+    model = model or _get_model()
 
     toc_text, page_index = _build_toc()
 

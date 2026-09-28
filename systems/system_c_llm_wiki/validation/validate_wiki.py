@@ -21,7 +21,9 @@ import sys
 from pathlib import Path
 
 CORPUS_RAW = Path("corpus/raw/connectedhomeip")
-WIKI_ROOT = Path("systems/system_c_llm_wiki/wiki")
+import sys as _sys
+# 첫 번째 인자로 위키 경로를 주면 그 위키를 검증한다 (모델별 비교용)
+WIKI_ROOT = Path(_sys.argv[1]) if len(_sys.argv) > 1 else Path("systems/system_c_llm_wiki/wiki")
 
 # 정적 전체주입이 가능한지 판단할 기준선 (모델별 context window)
 CONTEXT_BUDGETS = [
