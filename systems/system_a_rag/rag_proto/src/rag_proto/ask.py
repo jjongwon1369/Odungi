@@ -105,8 +105,10 @@ class Pipeline:
             identifiers_in_answer=extract_identifiers(
                 answer, id_cfg["patterns"], id_cfg.get("stopwords", [])
             ),
+            # retrieve는 BM25·벡터·융합, rerank는 재순위. 검색 지연의 대부분이 재순위라 나눠 남긴다
             latency_ms=LatencyMs(
-                retrieve=result.elapsed_ms,
+                retrieve=result.elapsed_ms - result.rerank_ms,
+                rerank=result.rerank_ms,
                 generate=generate_ms,
                 total=result.elapsed_ms + generate_ms,
             ),
@@ -136,7 +138,7 @@ def print_human(record: AnswerRecord, fake: bool) -> None:
         print(f"  [{c.chunk_id}] score={c.rerank_score}  {c.source_path}")
 
     lat = record.latency_ms
-    print(f"\n지연   : 검색 {lat.retrieve}ms + 생성 {lat.generate}ms = {lat.total}ms")
+    print(f"\n지연   : 검색 {lat.retrieve}ms + 재순위 {lat.rerank}ms + 생성 {lat.generate}ms = {lat.total}ms")
 
     t = record.tokens
     print(

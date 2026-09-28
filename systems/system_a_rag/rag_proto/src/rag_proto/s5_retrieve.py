@@ -21,6 +21,8 @@ rag_proto.s5_retrieve — S5. 하이브리드 검색 + 재순위
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import re
 import sys
@@ -69,9 +71,11 @@ class RetrievalResult:
     fused: list[str]
     reranked: list[str]
     candidates: list[Candidate]
-    # 실제 검색에 걸린 시간. CachedRetriever가 결과를 재사용해도 이 값을 그대로
-    # 넘겨서, 답변 레코드의 검색 지연이 캐시 덕에 0ms로 찍히지 않게 한다.
+    # 실제 검색에 걸린 시간(재순위 포함). CachedRetriever가 결과를 재사용해도 이 값을
+    # 그대로 넘겨서, 답변 레코드의 검색 지연이 캐시 덕에 0ms로 찍히지 않게 한다.
     elapsed_ms: int = 0
+    # 그중 재순위에 걸린 시간. 검색 지연의 대부분이라 답변 레코드에 따로 남긴다.
+    rerank_ms: int = 0
 
 
 def where_matches(metadata: dict, where: dict | None) -> bool:
@@ -148,17 +152,24 @@ def reciprocal_rank_fusion(rankings: list[list[str]], rrf_k: int = 60) -> list[s
 
 
 class Reranker:
-    def __init__(self, model_name: str, device: str = "auto"):
+    def __init__(self, model_name: str, device: str = "auto", batch_size: int | None = None):
         from FlagEmbedding import FlagReranker
 
         self.model = FlagReranker(model_name, use_fp16=(device != "cpu"))
+        # None이면 라이브러리 기본값(128). 작게 주면 짧은 쌍끼리 묶여 패딩 낭비가 준다.
+        self.batch_size = batch_size
 
     def score(self, query: str, passages: list[str]) -> list[float]:
         if not passages:
             return []
-        raw = self.model.compute_score(
-            [[query, p] for p in passages], normalize=True
-        )
+        kwargs = {"batch_size": self.batch_size} if self.batch_size else {}
+        # 쌍 수가 batch_size 이상이면 FlagEmbedding이 진행 막대 2개를 stderr로 띄운다
+        # (disable=len(pairs) < batch_size). 배치 진행 줄과 시연 화면을 어지럽혀서
+        # 호출 동안만 가린다. 오류는 예외로 올라오므로 놓치지 않는다.
+        with contextlib.redirect_stderr(io.StringIO()):
+            raw = self.model.compute_score(
+                [[query, p] for p in passages], normalize=True, **kwargs
+            )
         # 쌍이 하나면 float를 돌려준다
         return [float(raw)] if isinstance(raw, (int, float)) else [float(s) for s in raw]
 
@@ -183,7 +194,11 @@ class Retriever:
         self.reranker = (
             FakeReranker()
             if fake
-            else Reranker(r["reranker_model"], cfg.pipeline["embedding"].get("device", "auto"))
+            else Reranker(
+                r["reranker_model"],
+                cfg.pipeline["embedding"].get("device", "auto"),
+                batch_size=r.get("rerank_batch_size"),
+            )
         )
 
     def _check_index_dim(self) -> None:
@@ -238,7 +253,9 @@ class Retriever:
         passages = [self.by_id[cid]["text"] for cid in pool if cid in self.by_id]
         pool = [cid for cid in pool if cid in self.by_id]
 
+        rerank_started = time.perf_counter()
         scores = self.reranker.score(query, passages)
+        rerank_ms = int((time.perf_counter() - rerank_started) * 1000)
         order = sorted(range(len(pool)), key=lambda i: -scores[i])[: r["rerank_top_k"]]
 
         candidates = [
@@ -259,6 +276,7 @@ class Retriever:
             reranked=[c.chunk_id for c in candidates],
             candidates=candidates,
             elapsed_ms=int((time.perf_counter() - started) * 1000),
+            rerank_ms=rerank_ms,
         )
 
 
@@ -268,7 +286,7 @@ class CachedRetriever:
 
     검색(BM25+벡터+재순위)은 결정적이라 참가자 LLM이나 반복 회차가 달라도 결과가
     같다. 본실험은 7모델 × 3회라 캐시 없이 돌리면 같은 검색을 21번씩 반복하고,
-    이 노트북에선 재순위가 질의당 ~50초라 840건이면 ~12시간이 걸린다.
+    이 노트북(MPS)에선 재순위가 질의당 약 11초(rerank_batch_size 4)라 840건이면 약 2.6시간이 걸린다.
     System B는 하위질의 문자열 단위로 재사용된다.
     """
 

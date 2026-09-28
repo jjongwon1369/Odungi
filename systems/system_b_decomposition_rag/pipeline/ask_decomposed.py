@@ -120,10 +120,13 @@ class DecompositionPipeline:
         fused_all: list[str] = []
         per_subq_candidates: list[list[Candidate]] = []
         retrieve_ms = 0
+        rerank_ms = 0
         for subq in subqueries:
             result = self.retriever.retrieve(subq)
-            # 캐시로 재사용돼도 실제 검색 시간을 합산한다(하위질의는 순차 검색)
-            retrieve_ms += result.elapsed_ms
+            # 캐시로 재사용돼도 실제 검색 시간을 합산한다(하위질의는 순차 검색).
+            # System A와 같이 재순위 시간은 rerank로 나눠 남긴다
+            retrieve_ms += result.elapsed_ms - result.rerank_ms
+            rerank_ms += result.rerank_ms
             bm25_all.extend(result.bm25)
             vector_all.extend(result.vector)
             fused_all.extend(result.fused)
@@ -160,8 +163,9 @@ class DecompositionPipeline:
             ),
             latency_ms=LatencyMs(
                 retrieve=retrieve_ms,
+                rerank=rerank_ms,
                 generate=generate_ms,
-                total=retrieve_ms + generate_ms,
+                total=retrieve_ms + rerank_ms + generate_ms,
             ),
             tokens=usage,
             corpus_commit=self.cfg.commit,
@@ -189,7 +193,7 @@ def print_human(record: AnswerRecord, fake: bool, subqueries: list[str]) -> None
         print(f"  [{c.chunk_id}] score={c.rerank_score}  {c.source_path}")
 
     lat = record.latency_ms
-    print(f"\n지연   : 검색 {lat.retrieve}ms + 생성 {lat.generate}ms = {lat.total}ms")
+    print(f"\n지연   : 검색 {lat.retrieve}ms + 재순위 {lat.rerank}ms + 생성 {lat.generate}ms = {lat.total}ms")
     t = record.tokens
     print(
         f"토큰   : uncached={t.uncached_input} cache_creation={t.cache_creation} "

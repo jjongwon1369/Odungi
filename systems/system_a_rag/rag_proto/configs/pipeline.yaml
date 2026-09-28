@@ -37,6 +37,11 @@ retrieval:
   rrf_k: 60               # RRF 상수. 통상 60
   reranker_model: "BAAI/bge-reranker-v2-m3"
   rerank_top_k: 5         # 베이스라인 논문도 top-5
+  # 재순위에 한 번에 넣는 쌍 수. 결과가 아니라 속도만 바꾸는 값이다.
+  # 기본값 128이면 후보 50개가 한 묶음이 되어 모두 가장 긴 쌍(512토큰) 길이로 채워진다
+  # (쌍 길이 중앙값 126토큰). 4로 두면 MPS에서 42.7s → 10.8s, 점수 차이 5e-8 이하,
+  # top-5 순위 동일 (2026-09-28 실측).
+  rerank_batch_size: 4
 
 # --- S6 생성 ---
 generation:
