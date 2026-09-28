@@ -74,7 +74,8 @@
 | 검색 | BM25 50 + 벡터 50 → RRF → 재순위 top-5 | top-5도 논문과 동일 |
 | 임베딩 | `BAAI/bge-m3` | dense만 사용. 희소는 BM25 담당 |
 | 재순위 | `BAAI/bge-reranker-v2-m3` | 논문은 Cohere. 재순위기만 교체로 명시 |
-| 참가자 LLM | 7종, `configs/participants.yaml` | 모델 ID·접속 주소·호출 설정을 이 파일 하나에서 관리. A·B·C가 같은 참가자를 쓴다 |
+| 참가자 LLM | 8종, `configs/participants.yaml` | 모델 ID·접속 주소·호출 설정을 이 파일 하나에서 관리. A·B·C가 같은 참가자를 쓴다. 9/28 gpt-6-astra 추가, 추론 모델 effort low |
+| B 질문 분해 | 참가자 모델이 각자 분해 | 9/28 평가 담당과 확정. 분해 능력까지 B 결과에 포함되고, 분해 토큰은 참가자 토큰에 합산한다 |
 
 **코퍼스 확장 계획**: Device Type 3개 → 6개 → 12개로 비교군을 만든다. 같은 commit에서
 갈라지므로 `corpus_snapshot` 과 `corpus_version` 을 청크·답변 JSON 에 함께 기록한다.
@@ -192,6 +193,8 @@ col.query(query_embeddings=[[...]], n_results=k,
   영어 질의에서는 2위까지 회복. Matter 식별자는 접두사 공유가 흔하므로
   (`Occupied`/`Unoccupied`, `Min`/`AbsMin`) 구조적 약점이다.
   → 리랭커 ablation 조건을 실험에 포함할 것. Q-07, Q-10이 해당 사례.
+- **학교망은 DeepSeek 접속을 막는다.** DNS는 풀리지만 연결이 안 된다(9/28 확인, 핫스팟에서는 정상).
+  DeepSeek 참가자를 돌릴 때는 다른 네트워크를 쓴다.
 - **OpenAI와 Anthropic은 토큰 의미가 반대다.** OpenAI `prompt_tokens`는 캐시된
   토큰을 포함하고, Anthropic `input_tokens`는 제외한다. 그대로 옮겨 담으면
   캐시 적중분이 이중 계산된다.
@@ -213,13 +216,10 @@ col.query(query_embeddings=[[...]], n_results=k,
 
 ## 미해결 사항
 
-- DeepSeek·Kimi 모델 ID와 접속 주소 (`participants.yaml`의 `TODO-`). API 키를 넣은 뒤
-  `run_eval --list-models`로 확정한다. `TODO-`로 남은 모델은 배치가 실행 전에 막는다.
-- 생성 조건(temperature·effort) 팀 확정 전. 현재값: `gpt-6-luna`는 temperature 생략, 나머지
-  GPT·DeepSeek·Kimi는 0.0(`gpt-6-sol`·`gpt-5.6-sol`은 effort를 정할 때 temperature도 함께 정할 것),
-  모든 모델에 max_tokens 16000. effort(추론 강도)는 `gpt-6-luna`만 low(1모델 시험용), 나머지는
-  모델 기본값(GPT-6 Luna medium, Opus 5.5 medium, Sonnet 5 high). 본실험 전에 참가자 전체 값을 정할 것.
-- System B의 질문 분해를 참가자 모델이 할지 고정 모델이 할지 (9/29 회의 안건). 지금은 참가자 모델.
+- DeepSeek(`deepseek-flash`, 실제 모델은 V4.1 Flash)·Kimi(`kimi-k3`) 설정은 제공자 문서 기준으로 채웠다(9/28). 키를 넣은 뒤
+  `run_eval --list-models`와 `--smoke`로 ID와 effort·temperature 설정이 받아들여지는지 확인할 것.
+- 생성 조건: 9/28 팀 결정으로 추론 모델은 일단 effort low('라이트')로 고정하고 gpt-6-astra를 추가했다(8종).
+  GPT·DeepSeek·Kimi는 temperature 생략(추론 모드에서 거부되거나 고정), 모든 모델에 max_tokens 16000.
 - 리랭커 ablation을 켜고 끌 설정이 없다(위 "알려진 함정" 참고). 실험에 넣기로 하면 추가한다.
 - 재구축 시간(수행계획서 정량 지표, RQ3)을 재지 않는다. 임베딩 단계만 시간을 남긴다.
 - 벡터DB 메타데이터에 Matter 버전(`model_version`, `spec_tag`)이 없다(수행계획서 04단계).
