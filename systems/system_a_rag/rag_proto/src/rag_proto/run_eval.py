@@ -110,15 +110,16 @@ def score_identifiers(query: EvalQuery, record: AnswerRecord) -> dict:
     }
 
 
-_KEY_LIKE = re.compile(r"sk-[A-Za-z0-9_\-*.]{4,}")
+_KEY_LIKE = re.compile(r"\b(sk|ak|org)-[A-Za-z0-9_\-*.]{4,}")
 
 
 def _redact(text: str) -> str:
     """
-    제공자 오류 문구에 들어오는 키 조각(예: 401의 "Incorrect API key provided: sk-proj-***abcd")을
-    가린다. 오류 문구는 answers.jsonl·eval.jsonl로 채점 담당자에게 넘어간다.
+    제공자 오류 문구에 들어오는 키 조각과 계정 식별자를 가린다. 예: 401의
+    "Incorrect API key provided: sk-proj-***abcd", Kimi 429의 "Your account org-…<ak-…>".
+    오류 문구는 answers.jsonl·eval.jsonl·failed_attempts.jsonl로 채점 담당자에게 넘어간다.
     """
-    return _KEY_LIKE.sub("sk-[가림]", text)
+    return _KEY_LIKE.sub(lambda m: f"{m.group(1)}-[가림]", text)
 
 
 def _error_record(pipeline: Pipeline, q: EvalQuery, exc: Exception, run: int) -> AnswerRecord:
@@ -173,12 +174,16 @@ def run(
     sink=None,
     label: str = "",
     trace_sink=None,
+    min_interval_s: float = 0.0,
 ) -> list[dict]:
     """
     sink가 주어지면 행이 만들어지는 즉시 sink(row)를 호출한다(배치 실행의 즉시 기록용).
     trace_sink가 주어지면 문항마다 호출 원본 기록(_drain_trace)을 넘긴다.
+    min_interval_s가 있으면 문항 시작 사이를 그만큼 벌린다(분당 호출 제한이 낮은 계정용).
+    기다리는 시간은 pipeline.ask 밖이라 답변 레코드의 지연(latency_ms)에 들어가지 않는다.
     """
     rows: list[dict] = []
+    last_start: float | None = None
 
     def emit_trace(q: EvalQuery, crashed: bool) -> None:
         if trace_sink:
@@ -191,6 +196,11 @@ def run(
             })
 
     for i, q in enumerate(queries, 1):
+        if min_interval_s and last_start is not None:
+            wait = last_start + min_interval_s - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+        last_start = time.monotonic()
         print(f"{label}[{i}/{len(queries)}] {q.qid} ({q.tier.value}) ...", end="", flush=True)
         started = time.perf_counter()
         try:
@@ -690,7 +700,8 @@ def run_batch(
                     print(f"[{p['model']} run{run_no}] 이미 완료 — 건너뜀")
                     continue
                 run(pipeline, todo, pattern, run_no=run_no, sink=sink,
-                    label=f"[{p['model']} run{run_no}] ", trace_sink=trace_sink)
+                    label=f"[{p['model']} run{run_no}] ", trace_sink=trace_sink,
+                    min_interval_s=float(p.get("min_question_interval_s") or 0))
 
     summary = {
         "per_model": summarize_batch(out_dir),
