@@ -162,11 +162,14 @@ class TokenUsage(BaseModel):
     cache_read: int = 0
     output: int = 0
 
-    def billable_equivalent(self, cache_read_rate: float = 0.1) -> float:
-        """청구 환산 입력 토큰. 비교 리포트에서만 쓰고 원자료는 4열 그대로 보존한다."""
+    def billable_equivalent(self, cache_read_rate: float = 0.1, cache_write_rate: float = 1.25) -> float:
+        """
+        청구 환산 입력 토큰. 비교 리포트에서만 쓰고 원자료는 4열 그대로 보존한다.
+        캐시 쓰기 1.25배는 OpenAI GPT-5.6 이후와 Anthropic 5분 캐시 요율이다(1시간 캐시는 2배).
+        """
         return (
             self.uncached_input
-            + self.cache_creation
+            + self.cache_creation * cache_write_rate
             + self.cache_read * cache_read_rate
         )
 
@@ -231,12 +234,15 @@ def extract_identifiers(
     """
     식별자 무손실 검증의 기반. 각 단계 출력에 이 함수를 적용해 집합을 비교한다.
     패턴은 pipeline.yaml의 identifiers.patterns에서 주입한다.
+
+    re.ASCII: 유니코드 모드의 \\b는 한글도 단어 문자로 봐서 "0x0202입니다"처럼 조사가
+    붙은 식별자를 놓친다. 팀 코퍼스 1,581청크·282문서에서는 두 모드의 결과가 같다.
     """
     stop = set(stopwords or [])
     found: list[str] = []
     seen: set[str] = set()
     for pat in patterns:
-        for m in re.finditer(pat, text):
+        for m in re.finditer(pat, text, re.ASCII):
             tok = m.group(0)
             if tok in stop or tok in seen:
                 continue

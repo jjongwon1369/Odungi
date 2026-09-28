@@ -28,6 +28,9 @@ data/queries.jsonl → runs/<타임스탬프>/answers.jsonl + summary.json
     eval.jsonl             answers.jsonl 행마다 DoD 점검 결과
     failed_attempts.jsonl  --resume으로 다시 돌린 크래시 시도. 채점 대상은 아니지만 과금은 됐다
     invocations.jsonl      호출마다 한 줄: 시각, 코드 커밋(code_commit·code_dirty), 참가자·회차
+    calls.jsonl            문항 시도마다 한 줄: LLM 호출별 원본 usage·finish_reason, System B의 하위질의·
+                           분해 원문. invocation은 invocations.jsonl의 started_at(이어하기 재시도 구분).
+                           토큰 4열 매핑을 사후에 대조하는 용도(채점 대상 아님)
     summary.json           모델별 집계(토큰 4열, billed_tokens는 재시도분 포함), 건너뛴 참가자,
                            코드 커밋(code_commits_all이 2개 이상이면 도중에 코드가 바뀐 것)
 """
@@ -48,7 +51,7 @@ from .ask import Pipeline
 from .check_queries import QUERIES_PATH, load_queries
 from .config import CONFIG_DIR, PARTICIPANTS_FILE, load, load_participants
 from .s5_retrieve import CachedRetriever, Retriever
-from .s6_generate import ABSTAIN_PHRASE, make_client
+from .s6_generate import ABSTAIN_PHRASE, FakeLLM, make_client
 from .schema import (
     AnswerRecord,
     EvalQuery,
@@ -107,6 +110,17 @@ def score_identifiers(query: EvalQuery, record: AnswerRecord) -> dict:
     }
 
 
+_KEY_LIKE = re.compile(r"sk-[A-Za-z0-9_\-*.]{4,}")
+
+
+def _redact(text: str) -> str:
+    """
+    제공자 오류 문구에 들어오는 키 조각(예: 401의 "Incorrect API key provided: sk-proj-***abcd")을
+    가린다. 오류 문구는 answers.jsonl·eval.jsonl로 채점 담당자에게 넘어간다.
+    """
+    return _KEY_LIKE.sub("sk-[가림]", text)
+
+
 def _error_record(pipeline: Pipeline, q: EvalQuery, exc: Exception, run: int) -> AnswerRecord:
     """
     실패한 문항도 answers.jsonl에 한 줄 남긴다(박종원 answer_format.md 요구사항).
@@ -129,8 +143,26 @@ def _error_record(pipeline: Pipeline, q: EvalQuery, exc: Exception, run: int) ->
         corpus_snapshot=cfg.corpus_snapshot,
         corpus_version=cfg.corpus_version,
         config_hash=cfg.config_hash,
-        error=f"{type(exc).__name__}: {exc}",
+        error=_redact(f"{type(exc).__name__}: {exc}"),
     )
+
+
+def _drain_trace(pipeline) -> dict:
+    """
+    문항 하나에 쓴 LLM 호출의 원본 usage·finish_reason, 그리고 System B면 하위질의를 꺼낸다.
+    AnswerRecord(동결 스키마)에 넣지 않고 배치의 calls.jsonl에만 남긴다.
+    """
+    calls = getattr(getattr(pipeline, "client", None), "raw_calls", None)
+    trace = {"calls": list(calls or [])}
+    if calls is not None:
+        calls.clear()
+    if hasattr(pipeline, "last_subqueries"):
+        trace["subqueries"] = list(pipeline.last_subqueries)
+        trace["decompose_fallback"] = getattr(pipeline, "last_decompose_fallback", None)
+        # 파서가 무엇을 하위질의로 골랐는지 사후에 대조할 수 있게 분해 응답 원문을 남긴다
+        raw = getattr(pipeline, "last_decompose_raw", None)
+        trace["decompose_raw"] = raw[:2000] if isinstance(raw, str) else None
+    return trace
 
 
 def run(
@@ -140,24 +172,40 @@ def run(
     run_no: int = 1,
     sink=None,
     label: str = "",
+    trace_sink=None,
 ) -> list[dict]:
-    """sink가 주어지면 행이 만들어지는 즉시 sink(row)를 호출한다(배치 실행의 즉시 기록용)."""
+    """
+    sink가 주어지면 행이 만들어지는 즉시 sink(row)를 호출한다(배치 실행의 즉시 기록용).
+    trace_sink가 주어지면 문항마다 호출 원본 기록(_drain_trace)을 넘긴다.
+    """
     rows: list[dict] = []
+
+    def emit_trace(q: EvalQuery, crashed: bool) -> None:
+        if trace_sink:
+            trace_sink({
+                "qid": q.qid,
+                "model": getattr(pipeline.client, "name", None),
+                "run": run_no,
+                "crashed": crashed,
+                **_drain_trace(pipeline),
+            })
+
     for i, q in enumerate(queries, 1):
         print(f"{label}[{i}/{len(queries)}] {q.qid} ({q.tier.value}) ...", end="", flush=True)
         started = time.perf_counter()
         try:
             record = pipeline.ask(q.question, qid=q.qid, run=run_no)
         except Exception as exc:  # 한 문항 실패가 전체를 멈추면 안 된다
-            print(f" 실패: {type(exc).__name__}: {exc}")
+            print(f" 실패: {_redact(f'{type(exc).__name__}: {exc}')}")
             row = {
                 "query": q.model_dump(mode="json"),
                 "record": _error_record(pipeline, q, exc, run_no).model_dump(mode="json"),
-                "eval": {"crashed": True, "error": traceback.format_exc(limit=2)},
+                "eval": {"crashed": True, "error": _redact(traceback.format_exc(limit=2))},
             }
             rows.append(row)
             if sink:
                 sink(row)
+            emit_trace(q, crashed=True)
             continue
 
         dangling = find_dangling_citations(record, pattern)
@@ -180,6 +228,7 @@ def run(
         )
         if sink:
             sink(rows[-1])
+        emit_trace(q, crashed=False)
         print(f" {int((time.perf_counter() - started) * 1000)}ms")
     return rows
 
@@ -228,9 +277,7 @@ def summarize(rows: list[dict]) -> dict:
         "identifier_recall_mean": round(sum(recalls) / len(recalls), 3) if recalls else None,
         "latency_ms": {"p50": pct(0.5), "p90": pct(0.9), "max": latencies[-1] if latencies else 0},
         "tokens": tok,
-        "tokens_billable_input": round(
-            tok["uncached_input"] + tok["cache_creation"] + tok["cache_read"] * 0.1, 1
-        ),
+        "tokens_billable_input": round(TokenUsage(**tok).billable_equivalent(), 1),
     }
 
 
@@ -400,7 +447,7 @@ def smoke_test(cfg, participants: list[dict]) -> int:
             print(f"        원본 usage: {getattr(client, 'last_raw_usage', None)}")
         except Exception as exc:
             failures += 1
-            print(f"  실패  {p['model']:<28} {type(exc).__name__}: {exc}")
+            print(f"  실패  {p['model']:<28} {_redact(f'{type(exc).__name__}: {exc}')}")
     return 1 if failures else 0
 
 
@@ -441,7 +488,7 @@ def list_models(participants: list[dict]) -> int:
             ids = sorted(m.id for m in client.models.list())
         except Exception as exc:
             failures += 1
-            print(f"  실패: {type(exc).__name__}: {str(exc)[:200]}")
+            print(f"  실패: {_redact(f'{type(exc).__name__}: {str(exc)[:200]}')}")
             continue
         wanted = [q["model"] for q, url, env in resolved if (q["provider"], url, env) == combo]
         print(f"  모델 {len(ids)}개. participants.yaml의 이름이 목록에 있는지:")
@@ -565,6 +612,24 @@ def run_batch(
     out_dir.mkdir(parents=True, exist_ok=True)
     answers_path = out_dir / "answers.jsonl"
     scope = {(q.qid, p["model"], run_no) for p in participants for run_no in range(1, runs + 1) for q in questions}
+    # A 폴더와 B 폴더는 (qid, model, run)만으로는 구분되지 않는다. 다른 시스템의 러너로
+    # --resume하면 그 시스템의 행이 섞이므로, 폴더를 건드리기 전에 query_mode를 대조한다.
+    # 크래시 행이 전부 failed_attempts로 옮겨진 폴더도 알아보도록 세 곳을 다 본다.
+    run_mode = pipeline_factory(FakeLLM(name="query-mode-probe"), retriever).query_mode.value
+    summary_path = out_dir / "summary.json"
+    existing_modes = {
+        r.get("query_mode")
+        for path in (answers_path, out_dir / "failed_attempts.jsonl")
+        for r in _read_jsonl(path)
+    }
+    if summary_path.exists():
+        existing_modes.add(json.loads(summary_path.read_text(encoding="utf-8")).get("query_mode"))
+    existing_modes.discard(None)
+    if existing_modes and run_mode not in existing_modes:
+        raise SystemExit(
+            f"{out_dir}에는 query_mode {sorted(existing_modes)} 결과가 있어 {run_mode}로 이어 쓸 수 없습니다. "
+            "System B 폴더는 run_batch_decomposed.py로, A 폴더는 python -m rag_proto.run_eval로 이어서 돌리세요."
+        )
     done = _prepare_resume(out_dir, scope)
     # 어떤 참가자 설정으로 돌렸는지 결과 옆에 남긴다(participants.yaml은 config_hash에 안 들어감)
     (out_dir / PARTICIPANTS_FILE).write_text(
@@ -580,9 +645,10 @@ def run_batch(
     if code["code_dirty"]:
         print(f"경고: 커밋하지 않은 코드·설정 변경이 있습니다 — {code['code_dirty_files'][:5]}")
     invocations_path = out_dir / "invocations.jsonl"
+    started_at = datetime.now().isoformat(timespec="seconds")
     with invocations_path.open("a", encoding="utf-8") as f:
         f.write(json.dumps({
-            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "started_at": started_at,
             **code,
             "participants": [p["model"] for p in participants],
             "runs": runs,
@@ -591,13 +657,19 @@ def run_batch(
 
     with answers_path.open("a", encoding="utf-8") as af, (out_dir / "eval.jsonl").open(
         "a", encoding="utf-8"
-    ) as ef:
+    ) as ef, (out_dir / "calls.jsonl").open("a", encoding="utf-8") as cf:
 
         def sink(row: dict) -> None:
             af.write(json.dumps(row["record"], ensure_ascii=False) + "\n")
             af.flush()
             ef.write(json.dumps(row, ensure_ascii=False) + "\n")
             ef.flush()
+
+        def trace_sink(trace: dict) -> None:
+            # --resume으로 같은 (qid, model, run)을 다시 돌리면 줄이 하나 더 생긴다.
+            # 어느 실행의 시도인지 invocations.jsonl의 started_at으로 잇는다
+            cf.write(json.dumps({"invocation": started_at, **trace}, ensure_ascii=False, default=str) + "\n")
+            cf.flush()
 
         skipped: dict[str, str] = {}
         query_mode = None
@@ -617,7 +689,8 @@ def run_batch(
                 if not todo:
                     print(f"[{p['model']} run{run_no}] 이미 완료 — 건너뜀")
                     continue
-                run(pipeline, todo, pattern, run_no=run_no, sink=sink, label=f"[{p['model']} run{run_no}] ")
+                run(pipeline, todo, pattern, run_no=run_no, sink=sink,
+                    label=f"[{p['model']} run{run_no}] ", trace_sink=trace_sink)
 
     summary = {
         "per_model": summarize_batch(out_dir),

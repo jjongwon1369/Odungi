@@ -95,6 +95,8 @@ class DecompositionPipeline:
         self.client = client or make_client(cfg, fake=self.fake_llm)
         self.decomposer = make_decomposer(fake=self.fake_llm, client=None if self.fake_llm else self.client)
         self.last_subqueries: list[str] = []
+        self.last_decompose_fallback: bool | None = None
+        self.last_decompose_raw: str | None = None
 
     @property
     def fake(self) -> bool:
@@ -110,10 +112,16 @@ class DecompositionPipeline:
         max_subq = self.cfg.pipeline["query"]["decompose_max_subq"]
         rerank_top_k = self.cfg.pipeline["retrieval"]["rerank_top_k"]
 
+        # 분해 호출이 실패해도 앞 문항의 하위질의가 이 문항 기록에 남지 않게 먼저 비운다
+        self.last_subqueries = []
+        self.last_decompose_fallback = None
+        self.last_decompose_raw = None
         t0 = time.perf_counter()
         subqueries, decompose_usage = self.decomposer.decompose(question, max_subq)
         decompose_ms = int((time.perf_counter() - t0) * 1000)
         self.last_subqueries = subqueries
+        self.last_decompose_fallback = getattr(self.decomposer, "last_fallback", None)
+        self.last_decompose_raw = getattr(self.decomposer, "last_raw_text", None)
 
         bm25_all: list[str] = []
         vector_all: list[str] = []
@@ -121,21 +129,31 @@ class DecompositionPipeline:
         per_subq_candidates: list[list[Candidate]] = []
         retrieve_ms = 0
         rerank_ms = 0
-        for subq in subqueries:
-            result = self.retriever.retrieve(subq)
-            # 캐시로 재사용돼도 실제 검색 시간을 합산한다(하위질의는 순차 검색).
-            # System A와 같이 재순위 시간은 rerank로 나눠 남긴다
-            retrieve_ms += result.elapsed_ms - result.rerank_ms
-            rerank_ms += result.rerank_ms
-            bm25_all.extend(result.bm25)
-            vector_all.extend(result.vector)
-            fused_all.extend(result.fused)
-            per_subq_candidates.append(result.candidates)
+        try:
+            for subq in subqueries:
+                result = self.retriever.retrieve(subq)
+                # 캐시로 재사용돼도 실제 검색 시간을 합산한다(하위질의는 순차 검색).
+                # System A와 같이 재순위 시간은 rerank로 나눠 남긴다
+                retrieve_ms += result.elapsed_ms - result.rerank_ms
+                rerank_ms += result.rerank_ms
+                bm25_all.extend(result.bm25)
+                vector_all.extend(result.vector)
+                fused_all.extend(result.fused)
+                per_subq_candidates.append(result.candidates)
 
-        candidates = merge_candidates(per_subq_candidates, rerank_top_k)
+            candidates = merge_candidates(per_subq_candidates, rerank_top_k)
 
-        t1 = time.perf_counter()
-        answer, generate_usage = generate(question, candidates, self.client)
+            t1 = time.perf_counter()
+            answer, generate_usage = generate(question, candidates, self.client)
+        except Exception as exc:
+            # 분해 호출은 이미 과금됐다. 뒤에서 실패해도 오류 행(run_eval._error_record가
+            # exc.usage를 읽는다)에 분해 토큰이 남도록 더해서 다시 던진다
+            prior = getattr(exc, "usage", None)
+            try:
+                exc.usage = add_usage(prior if isinstance(prior, TokenUsage) else TokenUsage(), decompose_usage)
+            except AttributeError:  # 속성을 못 붙이는 예외 타입이면 그대로 던진다
+                pass
+            raise
         # LatencyMs엔 분해 칸이 없어(동결 스키마) 분해도 LLM 호출이므로 generate에 포함한다
         generate_ms = decompose_ms + int((time.perf_counter() - t1) * 1000)
         usage = add_usage(generate_usage, decompose_usage)

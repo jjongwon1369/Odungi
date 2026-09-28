@@ -12,6 +12,7 @@ FakeDecomposer로 배관만 확인한다(원 질문을 그대로 하위질의 1�
 from __future__ import annotations
 
 import json
+import re
 from typing import Protocol
 
 
@@ -41,19 +42,73 @@ class LLMDecomposer:
 
     def __init__(self, client):
         self.client = client
+        # 직전 분해가 파싱에 실패해 원 질문으로 떨어졌는지, 그리고 응답 원문. 배치가 calls.jsonl에 남긴다
+        self.last_fallback: bool = False
+        self.last_raw_text: str | None = None
 
     def decompose(self, question: str, max_subq: int) -> tuple[list[str], object | None]:
         prompt = f"최대 하위질의 수: {max_subq}\n\n질문: {question}"
+        self.last_raw_text = None
         # 분해 호출도 참가자 LLM 비용이다. usage를 버리면 System B 비용이 과소 계상된다.
         text, usage = self.client.complete(_SYSTEM_PROMPT, prompt)
-        try:
-            subqs = json.loads(text)
-            if isinstance(subqs, list) and subqs and all(isinstance(s, str) and s.strip() for s in subqs):
-                return subqs[:max_subq], usage
-        except (json.JSONDecodeError, TypeError):
-            pass
+        self.last_raw_text = text
+        subqs = parse_subqueries(text)
+        if subqs:
+            self.last_fallback = False
+            return subqs[:max_subq], usage
         # 파싱 실패 시 원 질문 그대로 — 검색 자체가 죽으면 안 된다.
+        self.last_fallback = True
         return [question], usage
+
+
+_SUBQ_KEYS = ("subqueries", "sub_queries", "queries", "sub_questions", "questions")
+
+
+def _as_subqueries(value) -> list[str]:
+    """JSON 값 하나가 하위질의 목록이면 정리해서 돌려준다. 아니면 빈 리스트."""
+    if isinstance(value, dict):
+        # {"subqueries": [...]}처럼 정해진 키 아래의 목록만 받는다(다른 키의 목록은 하위질의가 아니다)
+        value = next((value[k] for k in _SUBQ_KEYS if k in value), None)
+    if isinstance(value, list) and value and all(isinstance(s, str) and s.strip() for s in value):
+        return list(dict.fromkeys(s.strip() for s in value))
+    return []
+
+
+def parse_subqueries(text: str) -> list[str]:
+    """
+    모델 출력에서 하위질의 배열을 꺼낸다. 못 꺼내면 빈 리스트.
+
+    "JSON 배열만"을 지시해도 ```json 코드 펜스로 감싸거나 앞뒤에 설명을 붙이는 모델이 있다.
+    json.loads만 하면 조용히 원 질문으로 떨어져 B가 A와 같아진다.
+    설명 속에도 배열이 나올 수 있으므로 본문 끝에서 끝나는 배열을 우선하고, 없으면 마지막 배열을 쓴다.
+    """
+    body = re.sub(r"^\s*```[a-zA-Z]*\s*|\s*```\s*$", "", text.strip())
+    try:
+        got = _as_subqueries(json.loads(body))
+        if got:
+            return got
+    except json.JSONDecodeError:
+        pass
+    decoder = json.JSONDecoder()
+    found: list[list[str]] = []
+    i = 0
+    while i < len(body):
+        if body[i] not in "[{":
+            i += 1
+            continue
+        try:
+            value, end = decoder.raw_decode(body, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        got = _as_subqueries(value)
+        if got:
+            if not body[end:].strip():
+                return got
+            found.append(got)
+        # 읽어 낸 JSON 값의 안쪽(다른 키의 목록 등)은 하위질의로 보지 않는다
+        i = end
+    return found[-1] if found else []
 
 
 def make_decomposer(fake: bool, client=None) -> Decomposer:
