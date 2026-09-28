@@ -182,10 +182,28 @@ class FakeReranker:
         return [1.0 - i / max(n, 1) for i in range(n)]
 
 
+def check_corpus_label(chunks: list[dict], cfg: Config) -> None:
+    """
+    색인에 쓴 청크와 지금 설정(ssot.yaml)의 코퍼스 라벨·커밋이 같은지 본다.
+    코퍼스를 바꾸고 S1~S4를 다시 안 돌렸거나 ssot.yaml을 안 고치면, 답변 기록에
+    실제로 검색한 코퍼스와 다른 라벨이 찍힌다(A·B 모두 이 검색기를 쓴다).
+    """
+    snapshots = {c.get("corpus_snapshot") for c in chunks}
+    commits = {c.get("corpus_commit") for c in chunks}
+    if snapshots != {cfg.corpus_snapshot} or commits != {cfg.commit}:
+        raise RuntimeError(
+            "청크의 코퍼스 라벨이 ssot.yaml과 다릅니다.\n"
+            f"  청크     : snapshot {sorted(map(str, snapshots))} / commit {sorted(map(str, commits))}\n"
+            f"  ssot.yaml: snapshot {cfg.corpus_snapshot} / commit {cfg.commit}\n"
+            "  → 코퍼스를 바꿨다면 ssot.yaml을 고친 뒤 S1~S4를 다시 실행하세요 (python -m rag_proto.config 로 먼저 확인)."
+        )
+
+
 class Retriever:
     def __init__(self, cfg: Config, fake: bool = False):
         self.cfg = cfg
         self.chunks = load_chunks()
+        check_corpus_label(self.chunks, cfg)
         self.by_id = {c["chunk_id"]: c for c in self.chunks}
         self.bm25 = BM25Index(self.chunks)
         self.embedder: Embedder = HashEmbedder() if fake else BGEM3Embedder(cfg)

@@ -10,6 +10,7 @@ rag_proto.config — 설정 로더 및 검증
 
 from __future__ import annotations
 
+import json
 import re
 import sys
 from dataclasses import dataclass
@@ -92,6 +93,20 @@ def load_participants(config_dir: Path | None = None) -> list[dict]:
     return [{**defaults, **p} for p in raw["participants"]]
 
 
+def team_corpus_labels(docs_path: Path) -> tuple[set[str], set[str]]:
+    """documents.jsonl 전체에 붙은 (snapshot_id 집합, commit_hash 집합)."""
+    snapshots: set[str] = set()
+    commits: set[str] = set()
+    with docs_path.open(encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            rec = json.loads(line)
+            snapshots.add(rec.get("snapshot_id") or "")
+            commits.add((rec.get("metadata") or {}).get("commit_hash") or "")
+    return snapshots, commits
+
+
 def validate(cfg: Config) -> list[str]:
     """
     설정을 검사하고 문제 목록을 돌려준다.
@@ -132,6 +147,24 @@ def validate(cfg: Config) -> list[str]:
                 "    → 같은 commit에서 Device Type 3/6/12개 코퍼스가 갈라지므로 snapshot_id가 필요합니다.\n"
                 "      corpus/metadata/snapshot.json 의 snapshot_id 를 넣으세요."
             )
+        # 청크 라벨은 코퍼스 파일에서, 답변 라벨은 ssot.yaml에서 온다. 코퍼스만 바꾸고
+        # ssot.yaml을 그대로 두면 답변 기록에 실제와 다른 코퍼스 라벨이 찍힌다.
+        if docs_path.exists() and cfg.corpus_snapshot:
+            snapshots, commits = team_corpus_labels(docs_path)
+            if snapshots != {cfg.corpus_snapshot}:
+                problems.append(
+                    "코퍼스 파일의 snapshot_id가 ssot.yaml과 다릅니다.\n"
+                    f"    코퍼스   : {', '.join(sorted(snapshots))}\n"
+                    f"    ssot.yaml: {cfg.corpus_snapshot}\n"
+                    "    → 코퍼스를 바꿨다면 그 tier의 metadata/snapshot.json 값으로\n"
+                    "      ssot.yaml의 snapshot_id와 corpus_version을 함께 고치세요."
+                )
+            if commits - {""} and commits != {cfg.commit}:
+                problems.append(
+                    "코퍼스 파일의 commit_hash가 ssot.yaml의 commit과 다릅니다.\n"
+                    f"    코퍼스   : {', '.join(sorted(commits))}\n"
+                    f"    ssot.yaml: {cfg.commit}"
+                )
         return problems  # repo 모드 검사는 건너뛴다
 
     if not cfg.repo_root.exists():

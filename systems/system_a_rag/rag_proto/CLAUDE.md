@@ -10,7 +10,7 @@
 | 시스템 | 내용 | 담당 | 비고 |
 |---|---|---|---|
 | **A** 단일 RAG | 청킹 → 색인 → Top-k 검색 → 답변 | 김태이 | **이 패키지** |
-| **B** 분해형 RAG | 질문을 2~5개로 분해 → **A의 검색 재사용** → 근거 병합 | — | `Retriever` 클래스가 공용 부품 |
+| **B** 분해형 RAG | 질문을 2~5개로 분해 → **A의 검색 재사용** → 근거 병합 | 김태이 | `Retriever` 클래스가 공용 부품. 팀 저장소 `systems/system_b_decomposition_rag` |
 | **C** LLM Wiki | 원본 → 구조화 Markdown 위키 → 전체 컨텍스트 주입 | 정채희 | `list_pages` / `read_page` |
 
 `query_mode: decomposed` 와 `--decompose` 자리는 System B 의 몫이다. A 는 검색기를 노출만 한다.
@@ -74,7 +74,7 @@
 | 검색 | BM25 50 + 벡터 50 → RRF → 재순위 top-5 | top-5도 논문과 동일 |
 | 임베딩 | `BAAI/bge-m3` | dense만 사용. 희소는 BM25 담당 |
 | 재순위 | `BAAI/bge-reranker-v2-m3` | 논문은 Cohere. 재순위기만 교체로 명시 |
-| 생성 LLM | **미정** | RAG와 위키가 반드시 동일 모델 |
+| 참가자 LLM | 7종, `configs/participants.yaml` | 모델 ID·접속 주소·호출 설정을 이 파일 하나에서 관리. A·B·C가 같은 참가자를 쓴다 |
 
 **코퍼스 확장 계획**: Device Type 3개 → 6개 → 12개로 비교군을 만든다. 같은 commit에서
 갈라지므로 `corpus_snapshot` 과 `corpus_version` 을 청크·답변 JSON 에 함께 기록한다.
@@ -107,7 +107,14 @@ python -m rag_proto.s2_chunk
 python -m rag_proto.s3_embed            # --fake 로 모델 없이 배관만 확인 가능
 python -m rag_proto.s4_index            # --reset 으로 컬렉션 재생성
 python -m rag_proto.s5_retrieve "질문"
+python -m rag_proto.ask "질문" --fake-llm   # S6 배관만 확인. 실제 답변은 아래처럼 참가자를 지정한다
+python -m rag_proto.run_eval --participants claude-sonnet-5 --runs 1 --limit 1 --questions ../../../benchmark/questions_v1.jsonl
+python -m rag_proto.run_eval --participants all --runs 3 --questions ../../../benchmark/questions_v1.jsonl
 ```
+
+본실험은 팀 저장소의 `systems/system_a_rag/rag_proto`에서 돌린다. 절차는 팀 저장소
+`systems/system_a_rag/README.md`의 "본실험 실행 절차". 다른 위치에 editable로 설치한 venv를
+쓰면 그쪽 코드가 import되므로 `PYTHONPATH=src`를 붙이고, 배치 첫 줄의 `코드:` 경로로 확인한다.
 
 ## 확인된 API 규약
 
@@ -137,8 +144,12 @@ col.query(query_embeddings=[[...]], n_results=k,
   `split_xml_segments` 가 `<_excerpt>` 로 감싸 재시도하고, 그래도 실패하면 문단 분할로
   떨어진다. 발췌엔 클러스터명이 없어 메타데이터의 `cluster` 를 경로 앞에 붙인다.
 - **`document_id` 는 `doc:<sha256>` 형태다.** 콜론과 64자 해시가 chunk_id 에 들어가면
-  `[chunk_id]` 인용 파싱과 가독성이 나빠져 경로 기반 id 를 쓴다. 원본 id 는 source_path 로
-  역추적 가능하다.
+  `[chunk_id]` 인용 파싱과 가독성이 나빠져 경로 기반 id 를 쓴다. 원본 id 는 청크의
+  `upstream_document_id` 에 그대로 보존하고, 줄 번호(`line_start`/`line_end`)는
+  documents.jsonl 의 text 기준이다(저장소 파일 줄은 `source_spans` 로 이어진다).
+- **코퍼스를 바꿀 때는 `ssot.yaml` 도 함께 고친다.** 청크 라벨은 코퍼스 파일의
+  `snapshot_id` 에서, 답변 라벨은 `ssot.yaml` 에서 온다. 둘이 다르면 설정 검증과
+  검색기 생성이 멈춘다(`config.validate`, `s5_retrieve.check_corpus_label`).
 - **`device_types` / `clusters` 는 hex ID 다.** `scope.json` 의 products / clusters 로
   이름을 매핑한다. scope.json 이 없으면 hex 그대로 남는다.
 
@@ -187,8 +198,13 @@ col.query(query_embeddings=[[...]], n_results=k,
 
 ## 미해결 사항
 
-- 생성 LLM 미정 (`pipeline.yaml`의 `TODO_MODEL_ID`)
-- S6 미구현
-- 질의셋 20문항 미작성 — 반드시 `must_include_keywords` 영역 안에서 만들 것.
-  그래야 Phase 2 교체 후에도 대상 문서가 살아남는다.
-- Decomposition-Retrieval은 `query_mode` 필드만 있고 미구현
+- DeepSeek·Kimi 모델 ID와 접속 주소 (`participants.yaml`의 `TODO-`). API 키를 넣은 뒤
+  `run_eval --list-models`로 확정한다. `TODO-`로 남은 모델은 배치가 실행 전에 막는다.
+- 생성 조건(temperature·effort) 팀 확정 전. 현재값: GPT·DeepSeek·Kimi에 temperature 0.0,
+  모든 모델에 max_tokens 16000, Claude effort는 모델 기본값. `--smoke`로 수용 여부를 확인할 것.
+- System B의 질문 분해를 참가자 모델이 할지 고정 모델이 할지 (9/29 회의 안건). 지금은 참가자 모델.
+- 리랭커 ablation을 켜고 끌 설정이 없다(위 "알려진 함정" 참고). 실험에 넣기로 하면 추가한다.
+- 재구축 시간(수행계획서 정량 지표, RQ3)을 재지 않는다. 임베딩 단계만 시간을 남긴다.
+- 벡터DB 메타데이터에 Matter 버전(`model_version`, `spec_tag`)이 없다(수행계획서 04단계).
+- 질의셋: 본실험은 팀 `benchmark/questions_v1.jsonl`(40문항). `data/queries.jsonl`(20문항)은
+  개발용으로만 쓰고, 두 셋은 겹치지 않는다.
