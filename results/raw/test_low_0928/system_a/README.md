@@ -1,6 +1,7 @@
 # System A — RAG · effort low 테스트 (2026-09-28)
 
 `answers.jsonl`이 채점 대상입니다. 한 줄이 (qid, model, run) 하나입니다.
+객관 지표 보고서(정답 미사용): `systems/system_a_rag/reports/2026-09-28_test_low_7models.md`
 
 - 줄 수: 280 (gpt-6-luna 40, deepseek-flash 40, kimi-k3 40, claude-sonnet-5 40, gpt-6-sol 40, claude-opus-5-5 40, gpt-5.6-sol 40), 실패 줄 0
 - `system`은 `rag`, `query_mode`는 `simple`, `run`은 1
