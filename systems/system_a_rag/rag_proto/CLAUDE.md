@@ -167,6 +167,13 @@ col.query(query_embeddings=[[...]], n_results=k,
 - **컬렉션 차원은 첫 add에서 고정된다.** 임베딩 모델을 바꾸면
   `--reset`으로 컬렉션을 지우고 다시 만들어야 한다.
 - **CPU에서 `use_fp16=True`는 오히려 느리거나 미지원이다.** `device: cpu`면 끈다.
+  이 값은 fp16 여부만 정한다. 장치는 FlagEmbedding이 스스로 고르므로 Mac에서는
+  `device: cpu`여도 임베딩·재순위가 MPS에서 돈다.
+- **재순위 묶음 크기 기본값(128)은 패딩 낭비가 크다.** 후보 50개가 한 묶음이 되어
+  전부 가장 긴 쌍(512토큰) 길이로 채워진다. 쌍 길이 중앙값은 126토큰이다.
+  `retrieval.rerank_batch_size: 4`로 MPS 기준 42.7s → 10.8s, 점수 차이 5e-8 이하,
+  top-5 동일(2026-09-28 실측). 강제로 CPU를 쓰면 56s로 더 느리고, fp16은 30.8s지만
+  top-5가 바뀌는 문항이 있어 쓰지 않는다.
 - **리랭커가 접두사 공유 식별자에서 오판한다.** `bge-reranker-v2-m3`가 질의어를
   부분 문자열로 포함한 더 긴 식별자를 정확 일치보다 높게 평가한다. 실측: 질의
   `TemperatureSetpoint`에 대해 `TemperatureSetpointHoldDuration`을 1위로 올렸고,
