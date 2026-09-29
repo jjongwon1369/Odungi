@@ -31,7 +31,9 @@ from pathlib import Path
 MODEL_PROVIDER = os.environ.get("WIKI_COMPILER_PROVIDER", "anthropic")
 MODEL_NAME = os.environ.get("WIKI_COMPILER_MODEL", "TODO-내일-확정")
 
-CORPUS_RAW = Path("corpus/raw/connectedhomeip")   # 실제 파일이 이 밑에 있는 걸 확인함
+# 팀 공용 입력. corpus/HANDOFF.md: "RAG와 LLM Wiki가 함께 사용하는 282개 정규화 문서".
+# 원본 전문(corpus/raw)이 아니라 이 파일을 읽어야 System A/B와 입력 범위가 같아진다.
+CORPUS_DOCS = Path(os.environ.get("CORPUS_DOCS", "corpus/processed/documents.jsonl"))
 SCOPE_JSON = Path("corpus/metadata/scope.json")
 # 기본 출력 위치. --wiki-root 로 바꿔서 여러 벌의 위키를 나란히 만들 수 있다
 # (컴파일 모델별 비교 실험용).
@@ -201,7 +203,7 @@ class Entity:
     kind: str          # "cluster" | "device_type" | "base" | "example" | "documentation" | "misc"
     name: str
     ids: list = field(default_factory=list)
-    files: list = field(default_factory=list)   # (role, rel_path, raw_path)
+    files: list = field(default_factory=list)   # (role, rel_path, text)
 
 
 def load_scope() -> dict:
@@ -365,26 +367,53 @@ def target_wiki_path(entity: Entity) -> Path:
 # ---------------------------------------------------------------------------
 
 
+def load_documents() -> dict:
+    """documents.jsonl → {상대경로: 본문}.
+
+    metadata의 relative_path / source_path / raw_path 중 있는 것을 경로로 쓴다.
+    corpus/raw/connectedhomeip/ 접두사가 붙어 있으면 떼어 상대경로로 맞춘다.
+    """
+    if not CORPUS_DOCS.exists():
+        raise SystemExit(
+            f"[오류] {CORPUS_DOCS} 가 없습니다.\n"
+            "       scripts/corpus/build.py 로 먼저 생성하세요 (corpus/HANDOFF.md 참고)."
+        )
+    prefix = "corpus/raw/connectedhomeip/"
+    docs: dict = {}
+    for line in CORPUS_DOCS.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        d = json.loads(line)
+        meta = d.get("metadata", {})
+        rel = meta.get("relative_path") or meta.get("source_path") or meta.get("raw_path")
+        if not rel:
+            continue
+        if rel.startswith(prefix):
+            rel = rel[len(prefix):]
+        docs[rel] = d.get("text", "")
+    print(f"[정보] {CORPUS_DOCS} 에서 {len(docs)}개 문서를 읽음 "
+          f"(총 {sum(len(t) for t in docs.values()):,}자)")
+    return docs
+
+
 def discover_and_group():
     scope = load_scope()
     path_to_entity, dir_to_entity, entities, cluster_name_to_key = build_registry(scope)
 
-    if not CORPUS_RAW.exists():
-        print(f"[경고] {CORPUS_RAW} 가 없습니다.")
-        return entities
+    docs = load_documents()
 
     n_files = 0
-    for raw_path in CORPUS_RAW.rglob("*"):
-        if not raw_path.is_file():
-            continue
-        rel_path = raw_path.relative_to(CORPUS_RAW)
+    for rel_str in sorted(docs):
+        rel_path = Path(rel_str)
         result = classify(rel_path, path_to_entity, dir_to_entity, entities, cluster_name_to_key)
         if result is None:
             continue
         key, role = result
         if key not in entities:
             entities[key] = Entity(key=key, kind="misc", name=key.split(":")[-1])
-        entities[key].files.append((role, rel_path.as_posix(), raw_path))
+        # 3번째 원소는 이제 파일 경로가 아니라 본문 텍스트다.
+        entities[key].files.append((role, rel_path.as_posix(), docs[rel_str]))
         n_files += 1
 
     print(f"[정보] {n_files}개 파일을 {len(entities)}개 엔티티로 그룹핑함")
@@ -402,8 +431,7 @@ def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str) -> Path:
 
     pieces = []
     source_paths = []
-    for role, rel_path, raw_path in entity.files:
-        text = raw_path.read_text(encoding="utf-8", errors="ignore")
+    for role, rel_path, text in entity.files:
         pieces.append((role, rel_path, text))
         source_paths.append(rel_path)
 
@@ -417,6 +445,7 @@ def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str) -> Path:
         f"commit_hash: {ssot_commit}\n"
         f"doc_type: {entity.kind}\n"
         f"compiled_by: {MODEL_PROVIDER}/{MODEL_NAME}\n"
+        f"corpus_source: {CORPUS_DOCS.as_posix()}\n"
         "---\n\n"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)

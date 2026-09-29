@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from run_agent import run_agent, _load_models, reset_interval_wait, get_interval_wait_s
+from run_agent import run_agent, ABSTAIN_PHRASE, _build_system_prompt, _load_models, reset_interval_wait, get_interval_wait_s
 
 # ---------------------------------------------------------------------------
 # 상수
@@ -123,7 +123,9 @@ def _sort_models_kimi_first(models: list[str]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 # A·B와 동일하게 마침표 없는 문구를 기준으로, 답변에 포함되어 있으면 기권으로 본다.
-ABSTAIN_TEXT = "제공된 문서에서 확인되지 않음"
+# 기권 문구는 run_agent(프롬프트)와 같은 상수를 본다.
+# System A/B의 s6_generate.ABSTAIN_PHRASE와도 글자 그대로 같아야 한다.
+ABSTAIN_TEXT = ABSTAIN_PHRASE
 
 
 def _to_answer_record(
@@ -260,6 +262,11 @@ def run_batch(
         "wiki_build": wiki_build,
         "max_turns": max_turns,
         "run_label": run_label,
+        # 생성 규칙이 바뀌면 해시가 바뀌도록 프롬프트 자체를 넣는다.
+        "system_prompt_sha256": hashlib.sha256(
+            _build_system_prompt().encode("utf-8")
+        ).hexdigest(),
+        "abstain_phrase": ABSTAIN_PHRASE,
     }
     cfg_hash = _config_hash(cfg)
 
