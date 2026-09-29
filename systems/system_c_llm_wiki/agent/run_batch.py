@@ -371,6 +371,8 @@ def run_batch(
                             "cache_read": td.get("cache_read"),
                             "cache_write": td.get("cache_write"),
                             "output_tokens": td.get("output_tokens"),
+                            "finish_reason": td.get("finish_reason"),
+                            "usage_raw": td.get("usage_raw"),
                         }
                         inv_f.write(json.dumps(inv_line, ensure_ascii=False) + "\n")
                     inv_f.flush()

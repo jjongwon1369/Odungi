@@ -338,6 +338,25 @@ def _tokens_anthropic(usage) -> dict:
     }
 
 
+def _turn_meta(response) -> dict:
+    """턴별 종료 사유와 원본 usage. 원본을 남겨 두면 토큰 추출 규칙이 바뀌어도 재실행 없이 다시 계산할 수 있다."""
+    finish_reason = None
+    choices = getattr(response, "choices", None)
+    if choices:  # Chat Completions (DeepSeek, Kimi)
+        finish_reason = getattr(choices[0], "finish_reason", None)
+    elif getattr(response, "stop_reason", None) is not None:  # Anthropic
+        finish_reason = response.stop_reason
+    else:  # OpenAI Responses: 끝까지 생성되면 completed, 잘리면 incomplete_details.reason
+        inc = getattr(response, "incomplete_details", None)
+        finish_reason = getattr(inc, "reason", None) or getattr(response, "status", None)
+    usage = getattr(response, "usage", None)
+    try:
+        usage_raw = usage.model_dump() if usage is not None and hasattr(usage, "model_dump") else None
+    except Exception:
+        usage_raw = None
+    return {"finish_reason": finish_reason, "usage_raw": usage_raw}
+
+
 def _sum_tokens(a: dict, b: dict) -> dict:
     """열별 누적. None + N = N, None + None = None."""
     result = {}
@@ -541,7 +560,7 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
         if not turn_calls and not final_answer_found:
             final_answer_found = True
 
-        turn_details.append({"turn": turn, "calls": turn_calls, **usage})
+        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **_turn_meta(response)})
 
         if verbose:
             print(
@@ -670,7 +689,7 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
             answer = msg.content or ""
             final_answer_found = True
 
-        turn_details.append({"turn": turn, "calls": turn_calls, **usage})
+        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **_turn_meta(response)})
 
         if verbose:
             print(
@@ -807,7 +826,7 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
         elif response.stop_reason == "end_turn":
             final_answer_found = True
 
-        turn_details.append({"turn": turn, "calls": turn_calls, **usage})
+        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **_turn_meta(response)})
 
         if verbose:
             print(
