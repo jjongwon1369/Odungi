@@ -26,8 +26,15 @@
 #   [9/28 팀 결정] 추론 모델은 일단 '라이트'(effort: low)로 고정한다. 추론 강도를 모델마다 기본값에 두면
 #   모델 비교에 추론 예산 차이가 섞이기 때문이다. 7종 모두 low다.
 #
-# [미결] System C는 temperature·max_tokens를 보내지 않는다(run_agent.py 270~275줄).
-#   A/B/C 조건을 맞추려면 정채희님과 합의 후 여기서 통일할 것.
+# cache_read_rate · cache_write_rate: 캐시 읽기·쓰기 토큰의 과금 배수(기본 입력 요율 대비).
+#   run_eval의 청구 환산 입력(TokenUsage.billable_equivalent)이 참가자별로 이 값을 쓴다. 없으면 0.1·1.25.
+#   값은 scripts/analyze_results.py PRICE 표와 같은 공식 요금(9/28 확인)을 나눈 것이다.
+#   Kimi 캐시 쓰기는 입력과 같은 요율(1.0배, 기본 5분 TTL)이고, DeepSeek은 캐시 쓰기가 없고 읽기가 0.02배,
+#   Opus 5.5는 캐시 읽기가 0.05배다. 4열 원자료는 그대로 두고 환산에만 쓴다.
+#
+# System C도 같은 생성 조건을 쓴다(#24, 9/29): 7종 effort low, 출력 상한 16000(파라미터 이름도 모델별로 같음),
+#   temperature 미전송. C의 설정은 systems/system_c_llm_wiki/agent/models.json에 따로 있으니,
+#   여기 값을 바꾸면 정채희님과 함께 맞출 것.
 
 defaults:
   max_tokens: 16000
@@ -40,6 +47,8 @@ participants:
     provider: openai
     effort: low
     temperature: null   # effort가 none이 아니라 보내면 거부된다
+    cache_read_rate: 0.1
+    cache_write_rate: 1.25
 
   # --- 저가
   # 모델 ID·추론 설정은 제공자 문서 기준(9/28). 키를 넣은 뒤 --list-models·--smoke로 확인할 것.
@@ -55,6 +64,8 @@ participants:
     effort: low
     temperature: null
     max_tokens_param: max_tokens
+    cache_read_rate: 0.02    # 캐시 적중 0.003 / 미적중 0.15 (혼잡 시간대도 같은 비율)
+    cache_write_rate: 1.0    # 캐시 쓰기 개념이 없다(항상 0)
 
   # Kimi: K3 빠른 시작 문서 기준. 추론은 항상 켜져 있고 reasoning_effort는 low·high·max(기본 max).
   #   temperature는 1.0 고정이라 바꿀 수 없다. 주소는 국제판 — 중국판(.cn)에서 받은 키면 바꿀 것.
@@ -67,23 +78,33 @@ participants:
     effort: low
     temperature: null
     min_question_interval_s: 50
+    cache_read_rate: 0.1
+    cache_write_rate: 1.0    # 5분 TTL 쓰기는 입력과 같은 요율
 
   # --- 중간
   - model: claude-sonnet-5
     provider: anthropic
     effort: low
+    cache_read_rate: 0.1
+    cache_write_rate: 1.25
 
   - model: gpt-6-sol
     provider: openai
     effort: low
     temperature: null
+    cache_read_rate: 0.1
+    cache_write_rate: 1.25
 
   # --- 고급
   - model: claude-opus-5-5
     provider: anthropic
     effort: low
+    cache_read_rate: 0.05    # 캐시 읽기 0.2 / 입력 4.0
+    cache_write_rate: 1.25
 
   - model: gpt-5.6-sol
     provider: openai
     effort: low
     temperature: null
+    cache_read_rate: 0.1
+    cache_write_rate: 1.25

@@ -120,9 +120,10 @@ def _openai_cached_tokens(u) -> int:
 def _openai_cache_write_tokens(u) -> int:
     """
     캐시 쓰기 토큰. OpenAI는 GPT-5.6 이후 prompt_tokens_details.cache_write_tokens로
-    보고하고 기본 입력 요율의 1.25배로 과금한다(OpenAI 프롬프트 캐시 문서). Azure
-    게이트웨이는 최상위 cache_creation_input_tokens 확장 필드를 쓴다(System C
-    run_agent.py도 이 필드를 읽는다). 못 찾으면 0 — 쓰기분이 uncached_input으로 잡힌다.
+    보고하고 기본 입력 요율의 1.25배로 과금한다(OpenAI 프롬프트 캐시 문서). Kimi도 같은
+    위치로 보고하지만 요율은 입력과 같은 1.0배다(participants.yaml cache_write_rate).
+    Azure 게이트웨이는 최상위 cache_creation_input_tokens 확장 필드를 쓴다.
+    못 찾으면 0 — 쓰기분이 uncached_input으로 잡힌다.
     """
     details = getattr(u, "prompt_tokens_details", None)
     for value in (
@@ -240,7 +241,9 @@ class AnthropicClient:
 
     - temperature/top_p/top_k를 보내면 400이다(Sonnet 5, Opus 5.5에서 샘플링
       파라미터 제거). OpenAI 쪽과 조건을 맞추려고 0.0을 보내면 전 문항이 실패한다.
-    - thinking은 항상 켜져 있고(Opus 5.5는 끌 수 없음) thinking 토큰도 max_tokens에
+    - thinking 필드를 보내지 않으면 두 모델 모두 adaptive thinking이 기본이다(Opus 5.5는 끌 수
+      없고, Sonnet 5는 thinking: disabled로 끌 수 있지만 여기서는 보내지 않는다). System C는
+      thinking: adaptive를 명시해 보내는데 같은 동작이다. thinking 토큰도 max_tokens에
       포함된다. max_tokens가 작으면 본문 없이 잘린다 → 참가자 설정에서 넉넉히 준다.
     - 응답 content에 thinking 블록이 섞여 오므로 text 블록만 모은다.
     - usage는 이미 4열과 같은 의미다: input_tokens는 캐시분을 *제외*한 값.
