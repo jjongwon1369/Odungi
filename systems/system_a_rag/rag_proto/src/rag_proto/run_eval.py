@@ -243,7 +243,22 @@ def run(
     return rows
 
 
-def summarize(rows: list[dict]) -> dict:
+# 캐시 읽기·쓰기 과금 배수(기본 입력 요율 대비). 참가자별 값은 participants.yaml의
+# cache_read_rate·cache_write_rate에 있고, 없는 모델은 OpenAI GPT-5.6+·Anthropic 5분 캐시 기준을 쓴다.
+DEFAULT_CACHE_RATES = (0.1, 1.25)
+
+
+def cache_rates_by_model(participants: list[dict] | None = None) -> dict[str, tuple[float, float]]:
+    """모델 이름 → (cache_read_rate, cache_write_rate). Kimi 쓰기 1.0, DeepSeek 읽기 0.02처럼 모델마다 다르다."""
+    ps = load_participants() if participants is None else participants
+    read_default, write_default = DEFAULT_CACHE_RATES
+    return {
+        p["model"]: (float(p.get("cache_read_rate", read_default)), float(p.get("cache_write_rate", write_default)))
+        for p in ps
+    }
+
+
+def summarize(rows: list[dict], cache_rates: dict[str, tuple[float, float]] | None = None) -> dict:
     ok = [r for r in rows if not r["eval"]["crashed"]]
     crashed = len(rows) - len(ok)
 
@@ -265,10 +280,16 @@ def summarize(rows: list[dict]) -> dict:
     ]
 
     tok = {"uncached_input": 0, "cache_creation": 0, "cache_read": 0, "output": 0}
+    billable = 0.0
+    rates = cache_rates or {}
     latencies: list[int] = []
     for r in ok:
         for k in tok:
             tok[k] += r["record"]["tokens"][k]
+        # 청구 환산은 행마다 그 모델의 요율로 계산한다(4열 원자료 tok는 그대로 둔다)
+        billable += TokenUsage(**r["record"]["tokens"]).billable_equivalent(
+            *rates.get(r["record"]["model"], DEFAULT_CACHE_RATES)
+        )
         latencies.append(r["record"]["latency_ms"]["total"])
 
     latencies.sort()
@@ -287,7 +308,7 @@ def summarize(rows: list[dict]) -> dict:
         "identifier_recall_mean": round(sum(recalls) / len(recalls), 3) if recalls else None,
         "latency_ms": {"p50": pct(0.5), "p90": pct(0.9), "max": latencies[-1] if latencies else 0},
         "tokens": tok,
-        "tokens_billable_input": round(TokenUsage(**tok).billable_equivalent(), 1),
+        "tokens_billable_input": round(billable, 1),
     }
 
 
@@ -809,7 +830,7 @@ def main() -> int:
     pattern = cfg.pipeline["generation"]["citation_pattern"]
 
     rows = run(pipeline, queries, pattern)
-    summary = summarize(rows)
+    summary = summarize(rows, cache_rates_by_model())
     out_dir = write_run(rows, summary, cfg)
     print_report(summary, rows, pipeline.fake, expected_total)
 

@@ -7,16 +7,21 @@
 - `system`은 `rag`, `query_mode`는 `decomposed`, `run`은 1
 - 질문: `benchmark/questions_v1.jsonl` 40문항
 - 코퍼스: 0.1-c3 `corpus-c3:2f00a8077e434eb6657fb661112012abeceba70c0d1e0633e73f6b7b9c7afb8e`, 원본 commit `1ac132b5`
+- 입력: System A와 같은 색인(`../index/chunks.jsonl`)을 쓴다. 색인의 원천은 C3 `corpus/tiers/c3/processed/documents.jsonl`의 `text`(범위에 맞춘 발췌, 282개 문서)이고, 원본 파일(`corpus/raw`)은 읽지 않는다
 - 파이프라인 설정 해시: `7ea3fe637dd8174e`
 - 인용 발췌: `../index/chunks.jsonl`의 청크 본문(`[chunk_id]`로 연결)
 
 ## 참가자 설정
-- 7종 모두 추론 강도 effort low(라이트), 출력 상한 16000토큰
+- 7종 모두 추론 강도 effort low(라이트). 분해 호출과 생성 호출에 같은 값을 보냈다
+  - OpenAI 3종, DeepSeek, Kimi: Chat Completions `reasoning_effort: "low"`
+  - Claude 2종: `output_config.effort: "low"`. thinking 필드는 보내지 않았다(두 모델 모두 adaptive thinking이 기본)
+- 출력 상한 16000토큰: DeepSeek은 `max_tokens`(`max_completion_tokens`는 오류 없이 무시됨), OpenAI 3종과 Kimi는 `max_completion_tokens`, Claude는 `max_tokens`
 - temperature는 보내지 않았다(GPT·DeepSeek·Kimi는 추론 모드에서 거부·무시·고정, Claude는 원래 보내지 않음)
+- 캐시 토큰: OpenAI(GPT-5.6 이후)와 Kimi는 캐시 쓰기를 `usage.prompt_tokens_details.cache_write_tokens`, 캐시 읽기를 `prompt_tokens_details.cached_tokens`로 보고한다. 이 값을 4열(캐시 없는 입력 = `prompt_tokens` − 읽기 − 쓰기)로 나눠 담았다. DeepSeek은 캐시 쓰기가 없고, Claude는 `cache_control`을 보내지 않아 캐시를 쓰지 않았다. 캐시 과금 배수는 제공자마다 다르다(쓰기: OpenAI·Claude 1.25배, Kimi 1.0배 / 읽기: 대부분 0.1배, DeepSeek 0.02배, Opus 5.5 0.05배)
 - deepseek-flash는 DeepSeek-V4.1-Flash다(V4 Flash가 9/10에 교체됨)
 - kimi-k3는 계정의 분당 요청 3회 제한 때문에 System B에서 문항 사이를 50초 벌려 실행했다(지연 기록에는 넣지 않음)
 - 질문 분해는 참가자 모델이 각자 했다(분해 토큰은 그 모델 토큰에 합산)
-- 실행 조건 전체는 각 실행 폴더의 `participants.yaml` 사본에 있다
+- 실행 조건 전체는 각 실행 폴더의 `participants.yaml` 사본에 있다. gpt-6-luna 폴더(`20260928_143517_…`)의 사본은 DeepSeek·Kimi ID를 정하기 전 설정이지만, 그 폴더에서 돌린 gpt-6-luna 설정(effort low, temperature 미전송, 출력 상한 16000)은 지금과 같다
 
 ## 실행 폴더 (`runs/`)
 | 폴더 | 모델 | 시작 | 코드 커밋 | 커밋 안 된 변경 | 다시 돌린 실패 시도 |

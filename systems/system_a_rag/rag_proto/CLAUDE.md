@@ -48,7 +48,9 @@
 액면 합산은 청구액을 자릿수 단위로 과대 계상한다. 논문이 복제 연구자에게
 남긴 방법론 노트가 이 4열 기록이다.
 
-환산이 필요하면 `TokenUsage.billable_equivalent()`를 쓰고 원자료는 보존한다.
+환산이 필요하면 `TokenUsage.billable_equivalent()`를 쓰고 원자료는 보존한다. 캐시 요율은 제공자마다
+달라서(Kimi 쓰기 1.0배, DeepSeek 읽기 0.02배, Opus 5.5 읽기 0.05배) `participants.yaml`의
+`cache_read_rate`·`cache_write_rate`를 넘긴다(`run_eval.cache_rates_by_model`).
 
 ### 3. 경로는 corpus.yaml에만 존재한다
 

@@ -165,7 +165,9 @@ class TokenUsage(BaseModel):
     def billable_equivalent(self, cache_read_rate: float = 0.1, cache_write_rate: float = 1.25) -> float:
         """
         청구 환산 입력 토큰. 비교 리포트에서만 쓰고 원자료는 4열 그대로 보존한다.
-        캐시 쓰기 1.25배는 OpenAI GPT-5.6 이후와 Anthropic 5분 캐시 요율이다(1시간 캐시는 2배).
+        기본값(읽기 0.1, 쓰기 1.25)은 OpenAI GPT-5.6 이후와 Anthropic 5분 캐시 요율이다(1시간 캐시는 2배).
+        제공자마다 다르다: Kimi 쓰기 1.0, DeepSeek 읽기 0.02, Opus 5.5 읽기 0.05.
+        참가자별 값은 participants.yaml의 cache_read_rate·cache_write_rate에서 넘긴다(run_eval.cache_rates_by_model).
         """
         return (
             self.uncached_input
