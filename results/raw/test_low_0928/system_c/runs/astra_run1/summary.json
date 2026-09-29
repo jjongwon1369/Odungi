@@ -9,18 +9,79 @@
   "questions_sha256": "9be6a33eb122d892ee8f6f6fb0ddfd1b40f1bda8ebedbe36e6d199a3105389a2",
   "reasoning_effort": "light",
   "models": [
-    "deepseek-flash"
+    "kimi-k3",
+    "deepseek-flash",
+    "gpt-6-luna",
+    "gpt-6-sol",
+    "gpt-5.6-sol",
+    "claude-sonnet-5",
+    "claude-opus-5-5"
   ],
   "results": {
+    "kimi-k3": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": 2570.2,
+      "agent_commit": "4b3f9aa"
+    },
     "deepseek-flash": {
       "ok": 40,
       "err": 0,
       "abstained": 4,
-      "elapsed_s": 9.1
+      "elapsed_s": 270.9,
+      "agent_commit": "4b3f9aa"
+    },
+    "gpt-6-luna": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": null,
+      "agent_commit": "987e4a0"
+    },
+    "gpt-6-sol": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": null,
+      "agent_commit": "987e4a0"
+    },
+    "gpt-5.6-sol": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 3,
+      "elapsed_s": null,
+      "agent_commit": "987e4a0"
+    },
+    "claude-sonnet-5": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 3,
+      "elapsed_s": null,
+      "agent_commit": "987e4a0"
+    },
+    "claude-opus-5-5": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": null,
+      "agent_commit": "987e4a0"
     }
   },
-  "agent_commit": "987e4a0",
-  "started_at": "2026-09-29T01:07:52.248967+00:00",
-  "finished_at": "2026-09-29T01:08:01.382840+00:00",
-  "total_records": 280
+  "agent_commit": "987e4a0 (GPT 3종·Claude 2종, 9/28) + 4b3f9aa (DeepSeek·Kimi, 9/29 재실행)",
+  "started_at": null,
+  "finished_at": "2026-09-29T05:47:50.113020+00:00",
+  "total_records": 280,
+  "reruns": [
+    {
+      "models": [
+        "kimi-k3",
+        "deepseek-flash"
+      ],
+      "agent_commit": "4b3f9aa",
+      "started_at": "2026-09-29T05:00:28.974838+00:00",
+      "finished_at": "2026-09-29T05:47:50.113020+00:00",
+      "reason": "이슈 #23 1-1: 9/28 실행에서 DeepSeek·Kimi에 effort low가 전송되지 않음(각각 기본값 high·max). low로 재실행해 두 모델 행만 교체"
+    }
+  ]
 }
