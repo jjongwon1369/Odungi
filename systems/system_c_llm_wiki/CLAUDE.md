@@ -57,6 +57,7 @@ systems/system_c_llm_wiki/
 ├── CLAUDE.md                   이 파일
 ├── compiler/compile_wiki.py    위키 컴파일러
 ├── validation/validate_wiki.py 출처·식별자 보존·토큰 수 검증
+├── validation/validate_records.py 답변 레코드를 팀 공용 AnswerRecord 로 검증
 ├── linker/crosslink_wiki.py    상호링크 생성기
 ├── agent/run_agent.py          에이전트 루프 (질의 1건)
 ├── agent/run_batch.py          40문항 × N모델 배치 실행 + 팀 공용 레코드 생성
@@ -81,8 +82,12 @@ python3 systems/system_c_llm_wiki/compiler/compile_wiki.py --dry-run
 WIKI_COMPILER_PROVIDER=openai WIKI_COMPILER_MODEL=gpt-5.6-luna \
   python3 systems/system_c_llm_wiki/compiler/compile_wiki.py
 
-# 검증
+# 위키 검증
 python3 systems/system_c_llm_wiki/validation/validate_wiki.py
+
+# 답변 레코드 검증 (팀 공용 AnswerRecord / 중복 / 토큰 4열 대조)
+python3 systems/system_c_llm_wiki/validation/validate_records.py \
+    results/raw/<실험명>/system_c
 
 # 에이전트 질의 (verbose)
 python3 systems/system_c_llm_wiki/agent/run_agent.py \
@@ -134,6 +139,7 @@ python3 systems/system_c_llm_wiki/agent/run_agent.py \
 - [x] 7종 모델 × 40문항 배치 실행 — `agent/run_batch.py`, 280레코드
 - [x] 이슈 #23 1~3절 반영 (입력을 `documents.jsonl` 로 교체 / 400 재시도 제거 / 레코드 필드 보강)
 - [ ] 위키 재구축 (`documents.jsonl` 입력, `--force`)
+- [x] 답변 레코드 검증기 — `validation/validate_records.py` (#23 5절 체크리스트)
 - [ ] 7종 재실행 및 결과 갱신
 
 페이지가 어떤 모델로 만들어졌는지는 프론트매터 `compiled_by` 로 확인한다:

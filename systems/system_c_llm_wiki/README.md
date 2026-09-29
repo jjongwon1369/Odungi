@@ -64,7 +64,7 @@ systems/system_c_llm_wiki/
 │   ├── models.json     참가자 모델 레지스트리
 │   └── probe_api.py    도구 호출·추론 파라미터·토큰 열 지원 확인
 ├── wiki*/         컴파일된 위키 산출물 (컴파일 모델별)
-└── validation/    출처·식별자 보존·토큰 수 검증, 위키 간 비교
+└── validation/    위키 검증(validate_wiki.py) · 위키 간 비교 · 답변 레코드 검증(validate_records.py)
 ```
 
 각 폴더의 README 에 세부 설계와 사용법이 있다.
@@ -73,7 +73,7 @@ systems/system_c_llm_wiki/
 
 - [x] 문서트리 설계 — 엔티티 단위 페이지 구조
 - [x] 컴파일러 (`compiler/compile_wiki.py`)
-- [x] 검증 (`validation/validate_wiki.py`)
+- [x] 검증 (`validation/validate_wiki.py`, `validation/validate_records.py`)
 - [ ] 전체 34페이지 컴파일 — API 크레딧 확보 후
 - [ ] 상호링크 생성
 - [ ] 에이전트 루프 (`list_pages` / `read_page` / `submit_answer`)

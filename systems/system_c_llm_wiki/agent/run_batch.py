@@ -139,27 +139,54 @@ def _sort_models_kimi_first(models: list[str]) -> list[str]:
 ABSTAIN_TEXT = ABSTAIN_PHRASE
 
 
-# 식별자 추출 규칙. System A의 configs/pipeline.yaml identifiers와 동일해야
-# 무손실 검증을 같은 기준으로 대조할 수 있다. (#23 3절)
+# 식별자 추출 규칙. 하드코딩하지 않고 System A의 configs/pipeline.yaml 을 런타임에 읽는다.
+# 같은 패턴·같은 스톱워드·같은 정렬이어야 A·B·C의 식별자 무손실 지표를 대조할 수 있다. (#23 3절)
 # re.ASCII: 유니코드 \b는 한글도 단어 문자로 봐서 "0x0202입니다"를 놓친다.
-IDENTIFIER_PATTERNS = [
+# (rag_proto.schema.extract_identifiers 와 동일한 동작 — pydantic 의존을 피하려고 여기서 재현한다.)
+IDENTIFIER_CONFIG = Path(
+    os.environ.get("IDENTIFIER_CONFIG", "systems/system_a_rag/rag_proto/configs/pipeline.yaml")
+)
+_FALLBACK_PATTERNS = [
     r"\b0x[0-9A-Fa-f]{4}\b",                     # 클러스터/속성 ID
     r"\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b",    # CamelCase
 ]
-IDENTIFIER_STOPWORDS = {"GitHub", "JavaScript", "TypeScript", "README"}
+_FALLBACK_STOPWORDS = ["GitHub", "JavaScript", "TypeScript", "README"]
+
+
+def _load_identifier_rules() -> tuple:
+    """System A 설정에서 patterns/stopwords 를 읽는다. 못 읽으면 폴백을 쓰고 경고한다."""
+    try:
+        import yaml  # type: ignore
+        cfg = yaml.safe_load(IDENTIFIER_CONFIG.read_text(encoding="utf-8")) or {}
+        ident = cfg.get("identifiers") or {}
+        pats = list(ident.get("patterns") or [])
+        stops = list(ident.get("stopwords") or [])
+        if pats:
+            return pats, stops
+        raise ValueError("identifiers.patterns 가 비어 있음")
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[경고] {IDENTIFIER_CONFIG} 에서 식별자 규칙을 읽지 못해 폴백을 쓴다: {exc}",
+            file=sys.stderr,
+        )
+        return _FALLBACK_PATTERNS, _FALLBACK_STOPWORDS
+
+
+IDENTIFIER_PATTERNS, IDENTIFIER_STOPWORDS = _load_identifier_rules()
 
 
 def _extract_identifiers(text: str) -> list:
+    stop = set(IDENTIFIER_STOPWORDS)
     found: list = []
     seen: set = set()
     for pat in IDENTIFIER_PATTERNS:
         for m in re.finditer(pat, text or "", re.ASCII):
             tok = m.group(0)
-            if tok in IDENTIFIER_STOPWORDS or tok in seen:
+            if tok in stop or tok in seen:
                 continue
             seen.add(tok)
             found.append(tok)
-    return found
+    return sorted(found)   # 공용 helper 와 같은 순서
 
 
 def _build_citations(result: dict, wiki_root: str) -> list:
