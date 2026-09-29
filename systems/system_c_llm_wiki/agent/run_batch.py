@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from run_agent import run_agent, _load_models
+from run_agent import run_agent, _load_models, reset_interval_wait, get_interval_wait_s
 
 # ---------------------------------------------------------------------------
 # 상수
@@ -122,7 +122,8 @@ def _sort_models_kimi_first(models: list[str]) -> list[str]:
 # AnswerRecord 생성
 # ---------------------------------------------------------------------------
 
-ABSTAIN_TEXT = "제공된 문서에서 확인되지 않음."
+# A·B와 동일하게 마침표 없는 문구를 기준으로, 답변에 포함되어 있으면 기권으로 본다.
+ABSTAIN_TEXT = "제공된 문서에서 확인되지 않음"
 
 
 def _to_answer_record(
@@ -157,7 +158,7 @@ def _to_answer_record(
     uncached_input = max(0, prompt - cache_read - cache_write)
 
     answer = result.get("answer", "")
-    abstained = answer.strip() == ABSTAIN_TEXT
+    abstained = ABSTAIN_TEXT in answer
 
     return {
         # ---- v0.3 기존 필드 (변경 금지) ----
@@ -313,6 +314,7 @@ def run_batch(
                         end=" ", flush=True, file=sys.stderr,
                     )
                     t0 = time.time()
+                    reset_interval_wait()
                     error = None
                     result: dict = {}
                     q_status = "ok"
@@ -331,7 +333,8 @@ def run_batch(
                         error = f"{e.__class__.__name__}: {e}"
                         print(f"ERR({error[:60]})", file=sys.stderr)
 
-                    elapsed_ms = int((time.time() - t0) * 1000)
+                    # Kimi 호출 간격 대기(min_interval_s)는 A·B처럼 지연에서 제외한다
+                    elapsed_ms = int((time.time() - t0 - get_interval_wait_s()) * 1000)
 
                     record = _to_answer_record(
                         q, result,

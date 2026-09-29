@@ -31,6 +31,18 @@ MODELS_JSON = Path(__file__).parent / "models.json"
 # 모델별 마지막 API 호출 시각 (min_interval_s 강제용)
 _last_call_times: dict[str, float] = {}
 
+# 호출 간격 강제로 기다린 누적 시간(초). A·B처럼 지연 기록에서 빼기 위해 run_batch가 읽는다.
+_interval_wait_s: float = 0.0
+
+
+def reset_interval_wait() -> None:
+    global _interval_wait_s
+    _interval_wait_s = 0.0
+
+
+def get_interval_wait_s() -> float:
+    return _interval_wait_s
+
 
 # ---------------------------------------------------------------------------
 # models.json 로딩
@@ -115,6 +127,8 @@ def _enforce_interval(model_name: str, min_interval_s: float) -> None:
     last = _last_call_times.get(model_name, 0.0)
     wait = min_interval_s - (time.time() - last)
     if wait > 0:
+        global _interval_wait_s
+        _interval_wait_s += wait
         time.sleep(wait)
 
 
