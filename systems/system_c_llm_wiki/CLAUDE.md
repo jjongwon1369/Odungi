@@ -122,6 +122,7 @@ python3 systems/system_c_llm_wiki/agent/run_agent.py \
 - **큰 엔티티 타임아웃**: Thermostat(54개 파일), Scenes(21개) 같은 엔티티는 입력이 수만 토큰이라 타임아웃/연결 오류가 난다. `_TRANSIENT_ERROR_HINTS` 에 타임아웃 계열을 포함시켜 재시도하도록 되어 있다.
 - **코퍼스 메타데이터 불일치 (미해결)**: 로컬 추출 시 `snapshot.json` 의 `origin` 이 `DS-J-L/connectedhomeip` → `project-chip/connectedhomeip` 로, `validation_report.json` 의 `artifact_set_hash` 가 `43eb0ad2...` → `a44005d0...` 로 달라진다. 같은 SSOT 커밋인데 해시가 다른 건 결정적 재현성 문제라 이동수님 확인 대기 중. 이 두 파일은 커밋하지 말 것.
 - **`scope.json` 의 `cluster_base`**: `source_role` 이 `specification` / `sdk_codegen` 두 항목으로 나뉘어 있고 파일명 stem이 제각각(`ModeBase`, `mode-base-cluster`)이다. `CLUSTER_BASE_CANONICAL_NAME` 로 정규화해 한 엔티티로 묶는다.
+- **레코드의 `corpus_version` 은 자기검증이 아니다**: 코퍼스 메타데이터에서 그대로 베껴 쓰기 때문에, 위키가 다른 입력으로 만들어져 있어도 `0.1-c3` 로 적힌다. 실제로 그렇게 됐었다(이슈 #23 1-4). 그래서 `run_batch.py` 가 실행 전에 위키 프론트매터의 `corpus_source` 를 직접 보고 다르면 종료한다(강행하려면 `--allow-corpus-mismatch`).
 - **컴파일러 입력은 `documents.jsonl` 뿐**: `corpus/raw` 를 직접 읽으면 scope 밖 디바이스 타입까지 위키에 들어가 System A/B와 입력 범위가 달라진다(실제로 발생 → 7개 페이지 오염, 이슈 #23). `CORPUS_DOCS` 환경변수로 경로만 바꿀 수 있다.
 - **400 응답은 재시도하지 않는다**: 추론 강도 파라미터가 거부됐을 때 조용히 빼고 다시 부르면 "추론 강도 low 고정"이라는 통제가 깨진 채 정상 종료된 것처럼 보인다. 그래서 400은 그대로 실패로 기록한다.
 - **병합된 엔티티의 `.name`**: 여러 클러스터가 한 엔티티로 합쳐지면 `.name` 은 먼저 등록된 클러스터명으로 고정된다. 이름으로 역탐색하지 말고 `cluster_name_to_key` 를 쓴다.

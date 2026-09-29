@@ -40,6 +40,8 @@ from run_agent import run_agent, ABSTAIN_PHRASE, _build_system_prompt, _load_mod
 SCHEMA_VERSION = "0.3"
 CORPUS_COMMIT = "1ac132b5ecd42cb6c78772f2576ed6f7fc814183"
 CORPUS_PHASE = "integrated"
+# 위키 컴파일러가 읽어야 하는 입력. 위키 프론트매터의 corpus_source 와 대조한다. (#23 1-4)
+EXPECTED_CORPUS_SOURCE = os.environ.get("CORPUS_DOCS", "corpus/processed/documents.jsonl")
 SNAPSHOT_JSON = Path("corpus/tiers/c3/metadata/snapshot.json")
 REASONING_EFFORT_LABEL = "light"
 
@@ -102,6 +104,62 @@ def _get_wiki_build(wiki_root: Path) -> str:
                 if line.startswith("compiled_by:"):
                     return line.split(":", 1)[1].strip().strip('"').strip("'")
     return "unknown"
+
+
+def _get_wiki_corpus_source(wiki_root: Path) -> tuple:
+    """위키 페이지 프론트매터의 corpus_source 를 모아 본다. (#23 1-4)
+
+    반환: (고유 corpus_source 집합, corpus_source 가 아예 없는 페이지 수)
+    """
+    sources: set = set()
+    missing = 0
+    for md_file in sorted(wiki_root.rglob("*.md")):
+        if md_file.stem.lower() == "readme":
+            continue
+        text = md_file.read_text(encoding="utf-8")
+        if not text.startswith("---"):
+            missing += 1
+            continue
+        head = text.split("---", 2)[1] if text.count("---") >= 2 else ""
+        found = None
+        for line in head.split("\n"):
+            if line.startswith("corpus_source:"):
+                found = line.split(":", 1)[1].strip().strip('"').strip("'")
+                break
+        if found:
+            sources.add(found)
+        else:
+            missing += 1
+    return sources, missing
+
+
+def check_wiki_corpus_source(wiki_root: Path, expected: str, allow_mismatch: bool) -> str:
+    """위키가 실제로 어떤 입력으로 컴파일됐는지 확인한다. (#23 1-4)
+
+    레코드의 corpus_version/corpus_snapshot 은 코퍼스 메타데이터에서 그대로 베껴 쓰므로,
+    위키가 다른 입력으로 만들어져 있어도 "c3로 돌렸다"고 적히게 된다. 실제로 그렇게 됐었다.
+    그래서 실행 전에 위키 프론트매터를 직접 본다.
+    """
+    sources, missing = _get_wiki_corpus_source(wiki_root)
+    ok = (not missing) and sources == {expected}
+    if ok:
+        print(f"[확인] 위키 입력 = {expected} (전 페이지 일치)")
+        return expected
+    detail = []
+    if missing:
+        detail.append(f"corpus_source 없는 페이지 {missing}개(구버전 컴파일)")
+    if sources - {expected}:
+        detail.append(f"다른 입력으로 만들어진 페이지: {sorted(sources - {expected})}")
+    msg = (
+        f"[경고] {wiki_root} 는 {expected} 로 컴파일된 위키가 아니다 — " + " / ".join(detail) + "\n"
+        f"        이대로 돌리면 레코드에는 c3 코퍼스로 적히지만 실제 입력은 다르다.\n"
+        f"        위키를 --force 로 재컴파일하거나, 의도한 것이면 --allow-corpus-mismatch 를 붙일 것."
+    )
+    if not allow_mismatch:
+        print(msg, file=sys.stderr)
+        raise SystemExit(2)
+    print(msg + "\n        (--allow-corpus-mismatch 로 계속 진행)", file=sys.stderr)
+    return ",".join(sorted(sources)) or "unknown"
 
 
 def _load_existing(path: Path) -> set:
@@ -283,6 +341,7 @@ def _to_answer_record(
         "turns": result.get("turns", 0),
         "wiki_build": wiki_build,
         "wiki_label": wiki_label,
+        "wiki_corpus_source": corpus_meta.get("wiki_corpus_source"),
         # 실제로 전송된 경우에만 라벨을 남긴다 (전송 안 됐는데 low로 기록되는 것 방지)
         "reasoning_effort": REASONING_EFFORT_LABEL if result.get("reasoning_applied") else None,
         "reasoning_config": result.get("reasoning_config_sent"),
@@ -310,7 +369,13 @@ def run_batch(
     max_turns: int,
     verbose: bool,
     limit: int | None,
+    allow_corpus_mismatch: bool = False,
 ) -> None:
+    # ---- 프리플라이트: 위키 입력 확인 (폴더를 만들기 전에 막는다) ----
+    wiki_corpus_source = check_wiki_corpus_source(
+        Path(wiki_root), EXPECTED_CORPUS_SOURCE, allow_corpus_mismatch
+    )
+
     # ---- 출력 디렉토리 구조 ----
     base_dir = Path("results") / "raw" / run_label / "system_c"
     run_dir = base_dir / "runs" / f"{wiki_label}_run{run}"
@@ -322,7 +387,7 @@ def run_batch(
     questions_sha256 = _file_sha256(questions_path)
     wiki_build = _get_wiki_build(Path(wiki_root))
     agent_commit = _git_short_head()
-    corpus_meta = _read_corpus_meta()
+    corpus_meta = {**_read_corpus_meta(), "wiki_corpus_source": wiki_corpus_source}
 
     # ---- 질문 로드 ----
     questions: list[dict] = []
@@ -556,6 +621,7 @@ def run_batch(
         "ssot_commit": CORPUS_COMMIT,
         "corpus_snapshot": corpus_meta.get("corpus_snapshot"),
         "corpus_version": corpus_meta.get("corpus_version"),
+        "wiki_corpus_source": corpus_meta.get("wiki_corpus_source"),
         "questions_sha256": questions_sha256,
         "reasoning_effort": REASONING_EFFORT_LABEL,
         "models": ordered_models,
@@ -672,6 +738,10 @@ def main():
         "--limit", type=int, default=None,
         help="테스트용: 첫 N문항만"
     )
+    parser.add_argument(
+        "--allow-corpus-mismatch", action="store_true",
+        help="위키가 corpus/processed/documents.jsonl 로 컴파일된 게 아니어도 강행 (#23 1-4)"
+    )
     args = parser.parse_args()
 
     # 모델 목록 결정
@@ -697,6 +767,7 @@ def main():
         max_turns=args.max_turns,
         verbose=args.verbose,
         limit=args.limit,
+        allow_corpus_mismatch=args.allow_corpus_mismatch,
     )
 
 
