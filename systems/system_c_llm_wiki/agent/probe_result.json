@@ -1,34 +1,34 @@
 {
   "gpt-6-luna": {
-    "api": "chat(fallback)",
-    "http": 429,
-    "tool_calling": false,
+    "api": "responses",
+    "http": 200,
+    "tool_calling": true,
     "token_columns": [
-      null,
-      null,
-      null,
+      55,
+      14,
+      0,
       null
     ]
   },
   "gpt-6-sol": {
-    "api": "chat(fallback)",
-    "http": 429,
-    "tool_calling": false,
+    "api": "responses",
+    "http": 200,
+    "tool_calling": true,
     "token_columns": [
-      null,
-      null,
-      null,
+      55,
+      14,
+      0,
       null
     ]
   },
   "gpt-5.6-sol": {
-    "api": "chat(fallback)",
-    "http": 429,
-    "tool_calling": false,
+    "api": "responses",
+    "http": 200,
+    "tool_calling": true,
     "token_columns": [
-      null,
-      null,
-      null,
+      55,
+      14,
+      0,
       null
     ]
   },
@@ -38,7 +38,7 @@
     "tool_calling": true,
     "token_columns": [
       450,
-      27,
+      50,
       0,
       0
     ]
@@ -60,7 +60,7 @@
     "tool_calling": true,
     "token_columns": [
       296,
-      39,
+      33,
       128,
       null
     ]
@@ -71,7 +71,7 @@
     "tool_calling": true,
     "token_columns": [
       176,
-      84,
+      80,
       null,
       null
     ]

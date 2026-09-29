@@ -26,3 +26,8 @@ build_astra.log
 build_all.log
 build_4omini.log
 __pycache__/
+
+# 배치 실행 중간 파일
+**/.partial/
+run_c.log
+run_*.log

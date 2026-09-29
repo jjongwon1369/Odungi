@@ -1,0 +1,26 @@
+{
+  "run_label": "test_low_0928",
+  "wiki_label": "astra",
+  "wiki_build": "openai/gpt-6-astra",
+  "wiki_root": "systems/system_c_llm_wiki/wiki-astra",
+  "ssot_commit": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+  "corpus_snapshot": "corpus-c3:2f00a8077e434eb6657fb661112012abeceba70c0d1e0633e73f6b7b9c7afb8e",
+  "corpus_version": "0.1-c3",
+  "questions_sha256": "9be6a33eb122d892ee8f6f6fb0ddfd1b40f1bda8ebedbe36e6d199a3105389a2",
+  "reasoning_effort": "light",
+  "models": [
+    "deepseek-flash"
+  ],
+  "results": {
+    "deepseek-flash": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": 9.1
+    }
+  },
+  "agent_commit": "987e4a0",
+  "started_at": "2026-09-29T01:07:52.248967+00:00",
+  "finished_at": "2026-09-29T01:08:01.382840+00:00",
+  "total_records": 280
+}
