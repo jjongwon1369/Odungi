@@ -74,8 +74,8 @@ def _get_route(model_cfg: dict) -> str:
         return "anthropic"
     # 엔드포인트는 models.json에만 적는다. 환경변수로 바뀌면 실행마다 조건이
     # 달라져도 레코드에 드러나지 않는다. (#23 2절)
-    base_url = model_cfg.get("base_url") or ""
-    if not base_url or "api.openai.com" in base_url:
+    base_url = _require_base_url(model_cfg)
+    if "api.openai.com" in base_url:
         return "openai_responses"
     return "openai_chat"
 
@@ -83,6 +83,25 @@ def _get_route(model_cfg: dict) -> str:
 # ---------------------------------------------------------------------------
 # 클라이언트 생성
 # ---------------------------------------------------------------------------
+
+def _require_base_url(model_cfg: dict) -> str:
+    """models.json 의 base_url 을 강제한다. (#23 2절)
+
+    base_url 을 생략하면 SDK가 OPENAI_BASE_URL / ANTHROPIC_BASE_URL 환경변수를 읽는다.
+    즉 "인자를 안 넘기는 것"은 엔드포인트 고정이 아니라 환경변수 지배를 허용하는 것이다.
+    실측:
+        OpenAI(api_key=k)                                  -> 환경변수 값
+        OpenAI(api_key=k, base_url="https://api.openai.com/v1") -> 고정
+    그래서 항상 명시적으로 넘기고, 없으면 실행을 막는다.
+    """
+    base_url = model_cfg.get("base_url")
+    if not base_url:
+        raise ValueError(
+            f"models.json 의 {model_cfg.get('model_id')} 에 base_url 이 없습니다. "
+            "엔드포인트를 환경변수에 맡기면 실행 조건이 레코드에 드러나지 않습니다."
+        )
+    return base_url
+
 
 def _make_openai_client(model_cfg: dict):
     try:
@@ -92,11 +111,11 @@ def _make_openai_client(model_cfg: dict):
     key = os.environ.get(model_cfg["key_env"])
     if not key:
         raise ValueError(f"환경변수 {model_cfg['key_env']}가 설정되지 않았습니다.")
-    base_url = model_cfg.get("base_url") or None
-    kwargs: dict = {"api_key": key, "timeout": _get_timeout()}
-    if base_url:
-        kwargs["base_url"] = base_url
-    return OpenAI(**kwargs)
+    return OpenAI(
+        api_key=key,
+        base_url=_require_base_url(model_cfg),   # 생략하면 env가 이긴다
+        timeout=_get_timeout(),
+    )
 
 
 def _make_anthropic_client(model_cfg: dict):
@@ -107,7 +126,11 @@ def _make_anthropic_client(model_cfg: dict):
     key = os.environ.get(model_cfg["key_env"])
     if not key:
         raise ValueError(f"환경변수 {model_cfg['key_env']}가 설정되지 않았습니다.")
-    return anthropic.Anthropic(api_key=key, timeout=_get_timeout())
+    return anthropic.Anthropic(
+        api_key=key,
+        base_url=_require_base_url(model_cfg),   # ANTHROPIC_BASE_URL 을 막는다
+        timeout=_get_timeout(),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -290,7 +313,14 @@ def _build_system_prompt() -> str:
         "3. 근거를 밝히세요. 사실을 주장하는 답변에는 근거가 된 페이지 ID를 "
         "submit_answer의 cited_pages에 포함하세요. 실제로 read_page로 읽은 "
         "페이지 ID만 사용하세요.\n"
-        "4. 간결하게 답하세요. 위키에 없는 단서·과정 설명·권고를 덧붙이지 마세요."
+        "4. 간결하게 답하세요. 위키에 없는 단서·과정 설명·권고를 덧붙이지 마세요.\n"
+        # 5번은 A·B에는 없는 규칙이다. A·B는 검색 결과를 한 번에 받아 본문만 쓰면 되지만
+        # C는 도구 호출로 답을 "제출"해야 한다. 이 규칙이 없으면 모델이 본문만 쓰고 끝내
+        # 답변이 기록되지 않는다(status: no_submit). 내용 조건이 아니라 제출 경로 안내라
+        # A·B와의 비교 조건을 바꾸지 않는다. (#23 2절, 팀 결정)
+        "5. 어떤 경우에도 submit_answer 로 끝내세요. 답을 찾지 못했더라도 "
+        f"answer 에 `{ABSTAIN_PHRASE}` 를 넣어 submit_answer 를 호출하세요. "
+        "도구를 부르지 않고 본문만 쓰면 답변이 기록되지 않습니다."
     )
 
 

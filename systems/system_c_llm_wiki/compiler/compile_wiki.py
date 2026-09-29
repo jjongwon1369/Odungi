@@ -22,6 +22,7 @@ import sys
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -33,7 +34,19 @@ MODEL_NAME = os.environ.get("WIKI_COMPILER_MODEL", "TODO-내일-확정")
 
 # 팀 공용 입력. corpus/HANDOFF.md: "RAG와 LLM Wiki가 함께 사용하는 282개 정규화 문서".
 # 원본 전문(corpus/raw)이 아니라 이 파일을 읽어야 System A/B와 입력 범위가 같아진다.
-CORPUS_DOCS = Path(os.environ.get("CORPUS_DOCS", "corpus/processed/documents.jsonl"))
+CORPUS_DOCS = Path(os.environ.get("CORPUS_DOCS", "corpus/tiers/c3/processed/documents.jsonl"))
+# 코퍼스 메타데이터. 컴파일 산출물에 snapshot_id 를 박아 위키가 어느 코퍼스에서 나왔는지
+# 레코드와 대조할 수 있게 한다. (#23 1-4)
+CORPUS_SNAPSHOT_JSON = Path(os.environ.get(
+    "CORPUS_SNAPSHOT_JSON", "corpus/tiers/c3/metadata/snapshot.json"))
+
+# 엔드포인트는 코드에 박는다. base_url 을 생략하면 SDK가 OPENAI_BASE_URL /
+# ANTHROPIC_BASE_URL 환경변수를 읽어버려, 어느 엔드포인트로 컴파일한 위키인지
+# 재현할 수 없다. 인자를 빼는 것은 고정이 아니라 환경변수 지배 허용이다. (#23 2절)
+PROVIDER_BASE_URL = {
+    "openai": "https://api.openai.com/v1",
+    "anthropic": "https://api.anthropic.com",
+}
 SCOPE_JSON = Path("corpus/metadata/scope.json")
 # 기본 출력 위치. --wiki-root 로 바꿔서 여러 벌의 위키를 나란히 만들 수 있다
 # (컴파일 모델별 비교 실험용).
@@ -100,6 +113,58 @@ def _call_with_retries(fn, tries: int = 2, base_delay: int = 8, what: str = "API
     raise last_err  # 여기 도달하면 안 되지만 안전망
 
 
+TOKEN_COLUMNS = ("input", "output", "cache_read", "cache_creation")
+
+
+def merge_build_tokens(prev_entities: dict | None, new_entities: dict) -> tuple:
+    """엔티티별 토큰 기록을 병합하고 합계를 다시 계산한다. (#23 1-3)
+
+    - 이어서 컴파일해도 앞선 실행의 비용이 남는다(덮어쓰기 방지).
+    - --force 로 같은 엔티티를 다시 만들면 새 값으로 교체된다(이중 계상 방지).
+    - 합계는 항상 병합 결과에서 재계산한다. 누적 덧셈은 재컴파일 때 두 번 더해진다.
+    """
+    merged = dict(prev_entities or {})
+    merged.update(new_entities or {})
+    totals = {col: 0 for col in TOKEN_COLUMNS}
+    for usage in merged.values():
+        for col in TOKEN_COLUMNS:
+            v = usage.get(col)
+            if isinstance(v, int):
+                totals[col] += v
+    return merged, totals
+
+
+def load_corpus_snapshot() -> str | None:
+    """코퍼스 snapshot_id. 위키 프론트매터에 박아 레코드와 대조한다. (#23 1-4)"""
+    try:
+        data = json.loads(CORPUS_SNAPSHOT_JSON.read_text(encoding="utf-8"))
+        return data.get("snapshot_id")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[경고] {CORPUS_SNAPSHOT_JSON} 을 읽지 못함: {exc}", file=sys.stderr)
+        return None
+
+
+def _usage_raw(usage) -> dict | None:
+    """SDK usage 객체를 그대로 dict 로 남긴다. (#23 1-3)
+
+    4열로 접은 값만 남기면 나중에 "어디서 잘못 읽었나"를 되짚을 수 없다.
+    실제로 cache_write 를 최상위에서 읽던 버그를 이 원본 없이는 사후 확인할 수 없었다.
+    """
+    if usage is None:
+        return None
+    for attr in ("model_dump", "to_dict", "dict"):
+        fn = getattr(usage, attr, None)
+        if callable(fn):
+            try:
+                return json.loads(json.dumps(fn(), default=str))
+            except Exception:  # noqa: BLE001
+                pass
+    try:
+        return json.loads(json.dumps(vars(usage), default=str))
+    except Exception:  # noqa: BLE001
+        return {"repr": str(usage)}
+
+
 def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: str = None):
     """(본문, 토큰 4열 dict)을 돌려준다. 위키 구축 비용을 기록하기 위함. (#23 3절)"""
     provider = provider or MODEL_PROVIDER
@@ -110,7 +175,8 @@ def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: 
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise RuntimeError("환경변수 ANTHROPIC_API_KEY 가 설정되어 있지 않음")
-        client = anthropic.Anthropic(api_key=api_key)
+        client = anthropic.Anthropic(
+            api_key=api_key, base_url=PROVIDER_BASE_URL["anthropic"])
         resp = _call_with_retries(
             lambda: client.messages.create(
                 model=model,
@@ -122,21 +188,29 @@ def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: 
         )
         u = getattr(resp, "usage", None)
         return resp.content[0].text, {
+            # Anthropic 의 input_tokens 는 캐시 읽기·쓰기를 제외한 순수 입력이다.
+            # OpenAI 의 prompt_tokens 는 캐시를 포함한다. 같은 칼럼에 넣되
+            # input_semantics 로 구분한다. 절대 합산하지 않는다. (#23 1-3)
             "input": getattr(u, "input_tokens", None),
             "output": getattr(u, "output_tokens", None),
             "cache_read": getattr(u, "cache_read_input_tokens", None),
             "cache_creation": getattr(u, "cache_creation_input_tokens", None),
+            "input_semantics": "excludes_cache",
+            "usage_raw": _usage_raw(u),
         }
     elif provider == "openai":
         from openai import OpenAI  # pip install openai
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("환경변수 OPENAI_API_KEY 가 설정되어 있지 않음")
-        # 엔드포인트는 SDK 기본값을 쓴다. 환경변수로 바꿀 수 있게 두면
-        # 어느 엔드포인트로 컴파일한 위키인지 재현할 수 없다. (#23 2절)
         # 큰 엔티티는 입력이 수만 토큰이라 기본 타임아웃으로는 부족하다.
         timeout_s = float(os.environ.get("WIKI_COMPILER_TIMEOUT", "600"))
-        client = OpenAI(api_key=api_key, timeout=timeout_s, max_retries=3)
+        client = OpenAI(
+            api_key=api_key,
+            base_url=PROVIDER_BASE_URL["openai"],   # 생략하면 env가 이긴다
+            timeout=timeout_s,
+            max_retries=3,
+        )
         resp = _call_with_retries(
             lambda: client.chat.completions.create(
                 model=model,
@@ -149,11 +223,19 @@ def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: 
         )
         u = getattr(resp, "usage", None)
         det = getattr(u, "prompt_tokens_details", None) if u else None
+        # 캐시 쓰기는 prompt_tokens_details 안에 있다. 최상위 usage 에서 읽으면
+        # 항상 None 이 되어 캐시 쓰기 비용이 통째로 사라진다. (#23 1-3)
+        cache_write = getattr(det, "cache_write_tokens", None) if det else None
+        if cache_write is None:
+            cache_write = getattr(u, "cache_write_tokens", None)   # 일부 게이트웨이 대비
         return resp.choices[0].message.content, {
+            # OpenAI 의 prompt_tokens 는 캐시 읽기를 포함한 전체 입력이다.
             "input": getattr(u, "prompt_tokens", None),
             "output": getattr(u, "completion_tokens", None),
             "cache_read": getattr(det, "cached_tokens", None) if det else None,
-            "cache_creation": getattr(u, "cache_write_tokens", None),
+            "cache_creation": cache_write,
+            "input_semantics": "includes_cache",
+            "usage_raw": _usage_raw(u),
         }
     elif provider == "google":
         # 주의: google-generativeai(구 SDK)는 2026년에 지원 종료됨.
@@ -387,7 +469,9 @@ def load_documents() -> dict:
     if not CORPUS_DOCS.exists():
         raise SystemExit(
             f"[오류] {CORPUS_DOCS} 가 없습니다.\n"
-            "       scripts/corpus/build.py 로 먼저 생성하세요 (corpus/HANDOFF.md 참고)."
+            "       티어 산출물은 git에 올라가지 않으므로 로컬에서 만들어야 합니다:\n"
+            "         python3 scripts/corpus/build_tiers.py --tier c3\n"
+            "       (상태 확인: --status-only / 자세한 내용은 corpus/HANDOFF.md)"
         )
     prefix = "corpus/raw/connectedhomeip/"
     docs: dict = {}
@@ -431,7 +515,7 @@ def discover_and_group():
     return entities
 
 
-def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str) -> Path:
+def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str, corpus_snapshot: str | None = None) -> Path:
     out_path = target_wiki_path(entity)
 
     if dry_run:
@@ -457,6 +541,7 @@ def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str) -> Path:
         f"doc_type: {entity.kind}\n"
         f"compiled_by: {MODEL_PROVIDER}/{MODEL_NAME}\n"
         f"corpus_source: {CORPUS_DOCS.as_posix()}\n"
+        f"corpus_snapshot: {corpus_snapshot or 'UNKNOWN'}\n"
         "---\n\n"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -497,6 +582,7 @@ def main():
 
     scope = load_scope()
     ssot_commit = scope.get("ssot_commit") or scope.get("repository", {}).get("commit_sha", "UNKNOWN")
+    corpus_snapshot = load_corpus_snapshot()
 
     entities = discover_and_group()
     if not entities:
@@ -534,7 +620,8 @@ def main():
             continue
 
         try:
-            _, usage = compile_entity(ent, dry_run=args.dry_run, ssot_commit=ssot_commit)
+            _, usage = compile_entity(ent, dry_run=args.dry_run, ssot_commit=ssot_commit,
+                                      corpus_snapshot=corpus_snapshot)
             compiled += 1
             if usage:
                 per_entity[key] = usage
@@ -551,22 +638,52 @@ def main():
     if args.dry_run:
         return
 
+    # ---- 토큰 기록: 덮어쓰지 않고 누적한다 (#23 1-3) ----
+    # 기본 동작이 "이미 만든 페이지 건너뛰기"라, 중단 후 이어서 돌리면 이번 실행은
+    # 남은 엔티티만 만든다. 파일을 통째로 새로 쓰면 앞선 실행에서 실제로 지불한 비용이 사라진다.
     token_path = WIKI_ROOT / "build_tokens.json"
     token_path.parent.mkdir(parents=True, exist_ok=True)
+    prev = {}
+    if token_path.exists():
+        try:
+            prev = json.loads(token_path.read_text(encoding="utf-8"))
+        except Exception as exc:  # noqa: BLE001
+            print(f"[경고] 기존 {token_path} 를 읽지 못해 새로 쓴다: {exc}")
+
+    merged_entities, totals = merge_build_tokens(prev.get("per_entity"), per_entity)
+
+    runs = list(prev.get("runs") or [])
+    runs.append({
+        "finished_at": datetime.now(timezone.utc).isoformat(),
+        "compiled_by": f"{MODEL_PROVIDER}/{MODEL_NAME}",
+        "corpus_source": CORPUS_DOCS.as_posix(),
+        "corpus_snapshot": corpus_snapshot,
+        "compiled_entities": compiled,
+        "skipped": skipped,
+        "failed": failed,
+        "this_run_tokens": build_tokens,
+    })
+
     token_path.write_text(json.dumps({
         "wiki_root": WIKI_ROOT.as_posix(),
         "compiled_by": f"{MODEL_PROVIDER}/{MODEL_NAME}",
         "corpus_source": CORPUS_DOCS.as_posix(),
+        "corpus_snapshot": corpus_snapshot,
         "ssot_commit": ssot_commit,
-        "compiled_entities": compiled,
-        "skipped": skipped,
-        "failed": failed,
-        "totals": build_tokens,
-        "per_entity": per_entity,
+        "entities_recorded": len(merged_entities),
+        "input_semantics_note": (
+            "OpenAI prompt_tokens 는 캐시 포함, Anthropic input_tokens 는 캐시 제외. "
+            "엔티티별 input_semantics 를 볼 것. 네 칼럼을 합산하지 말 것."
+        ),
+        "totals": totals,
+        "per_entity": merged_entities,
+        "runs": runs,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[토큰] {token_path} 기록 — 입력 {build_tokens['input']:,} / "
-          f"출력 {build_tokens['output']:,} / 캐시읽기 {build_tokens['cache_read']:,} / "
-          f"캐시쓰기 {build_tokens['cache_creation']:,} (합산 금지)")
+    print(f"[토큰] {token_path} — 엔티티 {len(merged_entities)}개 누적 / "
+          f"입력 {totals['input']:,} / 출력 {totals['output']:,} / "
+          f"캐시읽기 {totals['cache_read']:,} / 캐시쓰기 {totals['cache_creation']:,} (합산 금지)")
+    if compiled:
+        print(f"       이번 실행분 — 입력 {build_tokens['input']:,} / 출력 {build_tokens['output']:,}")
 
     print(f"\n[요약] 컴파일 {compiled}개 / 건너뜀 {skipped}개 / 실패 {len(failed)}개")
     if failed:

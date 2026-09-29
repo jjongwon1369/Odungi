@@ -21,9 +21,10 @@
 ## 불변식 (바꾸려면 팀 합의 필요)
 
 - **SSOT**: connectedhomeip 커밋 `1ac132b5ecd42cb6c78772f2576ed6f7fc814183`. 모든 산출물이 이 해시를 프론트매터에 기록한다.
-- **코퍼스**: 위키 컴파일러의 입력은 **`corpus/processed/documents.jsonl`** (팀 공용 정규화 산출물, 282개 문서 / 264 whole · 18 trimmed)이다.
+- **코퍼스**: 위키 컴파일러의 입력은 **`corpus/tiers/c3/processed/documents.jsonl`** (팀 공용 정규화 산출물, 282개 문서 / 264 whole · 18 trimmed)이다.
   `corpus/raw/connectedhomeip` 원본을 컴파일러가 직접 읽지 않는다 — System A/B와 입력 범위를 맞추기 위한 조건이며 이슈 #23 1·4절의 핵심.
   두 경로 모두 로컬에서 `scripts/corpus/extract_corpus.py` 로 생성하며 git에 커밋하지 않는다(라이선스 검토 미완).
+- **엔드포인트**: `models.json` 의 `base_url` 을 항상 명시적으로 넘긴다. 생략하면 SDK가 `OPENAI_BASE_URL`/`ANTHROPIC_BASE_URL` 을 읽어 환경변수가 이긴다(실측 확인). 인자를 빼는 건 고정이 아니다.
 - **범위**: `corpus/metadata/scope.json` 이 정의하는 4 Device Type / 23 Cluster. 코드에서 하드코딩으로 대체하지 말고 런타임에 읽는다.
 - **생성 모델**: System A/B/C가 반드시 동일 모델을 사용한다. 현재 `gpt-5.6-luna` (Azure OpenAI 게이트웨이).
 - **질의 방식**: 에이전트 페이지 탐색형 (수행계획 발표 시 확정). 정적 전체주입 아님.
@@ -32,7 +33,7 @@
 
 ### 1단계 — 오프라인 위키 컴파일 (`compiler/compile_wiki.py`)
 
-`corpus/processed/documents.jsonl` 의 문서를 **엔티티 단위**(클러스터 / 디바이스 타입 / 공유 베이스)로 묶어 **엔티티당 페이지 1개**로 컴파일한다. 282개 문서 → 34개 엔티티.
+`corpus/tiers/c3/processed/documents.jsonl` 의 문서를 **엔티티 단위**(클러스터 / 디바이스 타입 / 공유 베이스)로 묶어 **엔티티당 페이지 1개**로 컴파일한다. 282개 문서 → 34개 엔티티.
 
 **왜 엔티티 단위인가**: 한 클러스터의 정보가 스펙 XML · SDK 정의 XML · 구현 C++ · README에 흩어져 있다. 파일 단위나 콘텐츠 종류 단위로 쪼개면 질의 시 한 기능을 이해하는 데 여러 페이지를 열어야 한다. (초기 스캐폴드가 `cluster/`, `device_type/`, `implementation/`, `commissioning/` 종류별 분리였는데 이 이유로 폐기했다.)
 

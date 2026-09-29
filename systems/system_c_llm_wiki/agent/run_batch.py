@@ -41,7 +41,8 @@ SCHEMA_VERSION = "0.3"
 CORPUS_COMMIT = "1ac132b5ecd42cb6c78772f2576ed6f7fc814183"
 CORPUS_PHASE = "integrated"
 # 위키 컴파일러가 읽어야 하는 입력. 위키 프론트매터의 corpus_source 와 대조한다. (#23 1-4)
-EXPECTED_CORPUS_SOURCE = os.environ.get("CORPUS_DOCS", "corpus/processed/documents.jsonl")
+EXPECTED_CORPUS_SOURCE = os.environ.get(
+    "CORPUS_DOCS", "corpus/tiers/c3/processed/documents.jsonl")
 SNAPSHOT_JSON = Path("corpus/tiers/c3/metadata/snapshot.json")
 REASONING_EFFORT_LABEL = "light"
 
@@ -106,76 +107,164 @@ def _get_wiki_build(wiki_root: Path) -> str:
     return "unknown"
 
 
-def _get_wiki_corpus_source(wiki_root: Path) -> tuple:
-    """위키 페이지 프론트매터의 corpus_source 를 모아 본다. (#23 1-4)
+def _get_wiki_provenance(wiki_root: Path) -> tuple:
+    """위키 페이지 프론트매터의 corpus_source / corpus_snapshot 을 모은다. (#23 1-4)
 
-    반환: (고유 corpus_source 집합, corpus_source 가 아예 없는 페이지 수)
+    반환: (corpus_source 집합, corpus_snapshot 집합, 둘 중 하나라도 없는 페이지 수)
     """
     sources: set = set()
+    snapshots: set = set()
     missing = 0
     for md_file in sorted(wiki_root.rglob("*.md")):
         if md_file.stem.lower() == "readme":
             continue
         text = md_file.read_text(encoding="utf-8")
-        if not text.startswith("---"):
+        if not text.startswith("---") or text.count("---") < 2:
             missing += 1
             continue
-        head = text.split("---", 2)[1] if text.count("---") >= 2 else ""
-        found = None
+        head = text.split("---", 2)[1]
+        found = {}
         for line in head.split("\n"):
-            if line.startswith("corpus_source:"):
-                found = line.split(":", 1)[1].strip().strip('"').strip("'")
-                break
-        if found:
-            sources.add(found)
-        else:
+            for key in ("corpus_source", "corpus_snapshot"):
+                if line.startswith(key + ":"):
+                    found[key] = line.split(":", 1)[1].strip().strip('"').strip("'")
+        if "corpus_source" in found:
+            sources.add(found["corpus_source"])
+        if found.get("corpus_snapshot") and found["corpus_snapshot"] != "UNKNOWN":
+            snapshots.add(found["corpus_snapshot"])
+        if "corpus_source" not in found or not found.get("corpus_snapshot"):
             missing += 1
-    return sources, missing
+    return sources, snapshots, missing
 
 
-def check_wiki_corpus_source(wiki_root: Path, expected: str, allow_mismatch: bool) -> str:
-    """위키가 실제로 어떤 입력으로 컴파일됐는지 확인한다. (#23 1-4)
+def check_wiki_provenance(wiki_root: Path, expected_source: str,
+                          expected_snapshot: str | None,
+                          allow_mismatch: bool) -> dict:
+    """위키가 실제로 어떤 코퍼스로 컴파일됐는지 확인한다. (#23 1-4)
 
-    레코드의 corpus_version/corpus_snapshot 은 코퍼스 메타데이터에서 그대로 베껴 쓰므로,
-    위키가 다른 입력으로 만들어져 있어도 "c3로 돌렸다"고 적히게 된다. 실제로 그렇게 됐었다.
-    그래서 실행 전에 위키 프론트매터를 직접 본다.
+    레코드의 corpus_version / corpus_snapshot 은 코퍼스 메타데이터를 그대로 베껴 쓴다.
+    위키가 다른 입력으로 만들어져 있어도 "c3로 돌렸다"고 적히게 된다 — 실제로 그랬다.
+    그래서 실행 전에 위키 프론트매터를 직접 보고, 경로와 snapshot_id 둘 다 대조한다.
     """
-    sources, missing = _get_wiki_corpus_source(wiki_root)
-    ok = (not missing) and sources == {expected}
-    if ok:
-        print(f"[확인] 위키 입력 = {expected} (전 페이지 일치)")
-        return expected
-    detail = []
+    sources, snapshots, missing = _get_wiki_provenance(wiki_root)
+    problems = []
     if missing:
-        detail.append(f"corpus_source 없는 페이지 {missing}개(구버전 컴파일)")
-    if sources - {expected}:
-        detail.append(f"다른 입력으로 만들어진 페이지: {sorted(sources - {expected})}")
+        problems.append(f"출처 정보가 없는 페이지 {missing}개(구버전 컴파일)")
+    if sources - {expected_source}:
+        problems.append(f"다른 경로로 컴파일된 페이지: {sorted(sources - {expected_source})}")
+    if expected_snapshot and snapshots - {expected_snapshot}:
+        problems.append(
+            f"snapshot 불일치 — 레코드에 적을 값 {expected_snapshot} / "
+            f"위키에 박힌 값 {sorted(snapshots)}"
+        )
+    if not problems:
+        print(f"[확인] 위키 출처 = {expected_source} / {expected_snapshot} (전 페이지 일치)")
+        return {"corpus_source": expected_source, "corpus_snapshot": expected_snapshot}
+
     msg = (
-        f"[경고] {wiki_root} 는 {expected} 로 컴파일된 위키가 아니다 — " + " / ".join(detail) + "\n"
-        f"        이대로 돌리면 레코드에는 c3 코퍼스로 적히지만 실제 입력은 다르다.\n"
+        f"[경고] {wiki_root} 의 출처가 이번 실행이 기록할 값과 다르다 — "
+        + " / ".join(problems) + "\n"
+        f"        이대로 돌리면 레코드에는 {expected_snapshot} 로 적히지만 실제 입력은 다르다.\n"
         f"        위키를 --force 로 재컴파일하거나, 의도한 것이면 --allow-corpus-mismatch 를 붙일 것."
     )
     if not allow_mismatch:
         print(msg, file=sys.stderr)
         raise SystemExit(2)
     print(msg + "\n        (--allow-corpus-mismatch 로 계속 진행)", file=sys.stderr)
-    return ",".join(sorted(sources)) or "unknown"
+    return {
+        "corpus_source": ",".join(sorted(sources)) or "unknown",
+        "corpus_snapshot": ",".join(sorted(snapshots)) or "unknown",
+    }
 
 
-def _load_existing(path: Path) -> set:
-    """기존 JSONL에서 (qid, model, run) 세트를 반환한다."""
+def _record_key(rec: dict) -> tuple:
+    return (rec.get("qid"), rec.get("model"), rec.get("run", 1))
+
+
+def _upsert_answers(answers_path: Path, runs_dir: Path) -> tuple:
+    """기존 answers.jsonl 위에 이번 실행의 partial 결과를 덮어씌운다. (#23 3절)
+
+    커밋돼 있는 줄은 그대로 두고, 같은 (qid, model, run) 이 새로 나온 것만 교체한다.
+    원자적으로 쓴다(임시파일 → replace). 중간에 죽어도 기존 파일이 잘리지 않는다.
+    """
+    records: dict = {}
+    order: list = []
+
+    def put(rec: dict) -> str:
+        k = _record_key(rec)
+        seen = k in records
+        if not seen:
+            order.append(k)
+        records[k] = rec
+        return "replaced" if seen else "added"
+
+    # 1) 기존 파일 (git 에 커밋돼 있는 것 포함)
+    if answers_path.exists():
+        for line in answers_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line:
+                put(json.loads(line))
+    kept_before = len(records)
+
+    # 2) 모든 run 의 partial 로 덮어쓰기
+    replaced = added = 0
+    for partial_path in sorted(runs_dir.glob("*/.partial/*.jsonl")):
+        for line in partial_path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            if put(json.loads(line)) == "replaced":
+                replaced += 1
+            else:
+                added += 1
+
+    tmp = answers_path.with_suffix(".jsonl.tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        for k in order:
+            f.write(json.dumps(records[k], ensure_ascii=False) + "\n")
+    os.replace(tmp, answers_path)
+    return len(records), kept_before - replaced, replaced, added
+
+
+def _load_existing(path: Path, cfg_hash: str | None = None,
+                   allow_config_change: bool = False) -> set:
+    """이미 끝난 (qid, model, run) 세트. 설정이 바뀌었으면 이어하지 않는다. (#23 3절)
+
+    config_hash 를 보지 않고 이어하면, 추론 강도나 프롬프트를 바꾼 뒤 재개했을 때
+    한 파일 안에 서로 다른 조건의 행이 섞인다. 그러고도 status 는 전부 ok 다.
+    """
     if not path.exists():
         return set()
     done: set = set()
+    stale: dict = {}
     with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
-            if line:
-                try:
-                    r = json.loads(line)
-                    done.add((r["qid"], r["model"], r["run"]))
-                except (json.JSONDecodeError, KeyError):
-                    pass
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+                key = (r["qid"], r["model"], r["run"])
+            except (json.JSONDecodeError, KeyError):
+                continue
+            row_cfg = r.get("config_hash")
+            if cfg_hash and row_cfg and row_cfg != cfg_hash:
+                stale[row_cfg] = stale.get(row_cfg, 0) + 1
+                continue
+            done.add(key)
+    if stale:
+        detail = ", ".join(f"{h}×{n}" for h, n in sorted(stale.items()))
+        msg = (
+            f"[경고] {path} 에 지금과 다른 설정으로 만든 행이 있다 — 현재 {cfg_hash} / 기존 {detail}\n"
+            f"        설정이 바뀐 뒤 이어서 돌리면 한 파일에 조건이 섞인다.\n"
+            f"        새 --run-label 로 처음부터 돌리거나, 의도한 것이면 "
+            f"--allow-config-change 를 붙일 것."
+        )
+        if not allow_config_change:
+            print(msg, file=sys.stderr)
+            raise SystemExit(3)
+        print(msg + "\n        (--allow-config-change 로 계속 진행: 해당 행은 다시 돌린다)",
+              file=sys.stderr)
     return done
 
 
@@ -342,6 +431,7 @@ def _to_answer_record(
         "wiki_build": wiki_build,
         "wiki_label": wiki_label,
         "wiki_corpus_source": corpus_meta.get("wiki_corpus_source"),
+        "wiki_corpus_snapshot": corpus_meta.get("wiki_corpus_snapshot"),
         # 실제로 전송된 경우에만 라벨을 남긴다 (전송 안 됐는데 low로 기록되는 것 방지)
         "reasoning_effort": REASONING_EFFORT_LABEL if result.get("reasoning_applied") else None,
         "reasoning_config": result.get("reasoning_config_sent"),
@@ -370,10 +460,13 @@ def run_batch(
     verbose: bool,
     limit: int | None,
     allow_corpus_mismatch: bool = False,
+    allow_config_change: bool = False,
 ) -> None:
-    # ---- 프리플라이트: 위키 입력 확인 (폴더를 만들기 전에 막는다) ----
-    wiki_corpus_source = check_wiki_corpus_source(
-        Path(wiki_root), EXPECTED_CORPUS_SOURCE, allow_corpus_mismatch
+    # ---- 프리플라이트: 위키 출처 확인 (폴더를 만들기 전에 막는다) ----
+    _corpus_meta_pre = _read_corpus_meta()
+    wiki_provenance = check_wiki_provenance(
+        Path(wiki_root), EXPECTED_CORPUS_SOURCE,
+        _corpus_meta_pre.get("corpus_snapshot"), allow_corpus_mismatch
     )
 
     # ---- 출력 디렉토리 구조 ----
@@ -387,7 +480,11 @@ def run_batch(
     questions_sha256 = _file_sha256(questions_path)
     wiki_build = _get_wiki_build(Path(wiki_root))
     agent_commit = _git_short_head()
-    corpus_meta = {**_read_corpus_meta(), "wiki_corpus_source": wiki_corpus_source}
+    corpus_meta = {
+        **_corpus_meta_pre,
+        "wiki_corpus_source": wiki_provenance["corpus_source"],
+        "wiki_corpus_snapshot": wiki_provenance["corpus_snapshot"],
+    }
 
     # ---- 질문 로드 ----
     questions: list[dict] = []
@@ -443,9 +540,8 @@ def run_batch(
     try:
         for model_name in ordered_models:
             partial_path = partial_dir / f"{model_name}.jsonl"
-            # 재개 판정은 partial 파일만 기준으로 한다.
-            # answers.jsonl은 덮어써지므로 신뢰할 수 없다.
-            done = _load_existing(partial_path)
+            # 재개 판정은 partial 파일 기준. 설정(config_hash)이 다르면 이어하지 않는다.
+            done = _load_existing(partial_path, cfg_hash, allow_config_change)
 
             ok = err = abstained_count = 0
             model_start = time.time()
@@ -574,22 +670,17 @@ def run_batch(
         inv_f.close()
         fail_f.close()
 
-    # ---- 모든 partial 병합 → answers.jsonl ----
-    # --models와 무관하게 .partial/ 안의 모든 jsonl을 합친다.
-    # 일부 모델만 재실행해도 나머지 모델 답변이 사라지지 않는다.
+    # ---- answers.jsonl 갱신: 업서트 ----
+    # .partial/ 은 .gitignore 대상이다. 그래서 "partial만 모아 새로 쓰기"를 하면
+    # 클론받은 곳에서 한 모델만 재실행할 때 커밋돼 있던 다른 모델 줄이 전부 사라진다.
+    # 기존 answers.jsonl을 읽어두고 (qid, model, run) 단위로 이번 결과만 갈아끼운다. (#23 3절)
     answers_path = base_dir / "answers.jsonl"
-    merged = 0
-    # run 1만 돌리고 나중에 run 2를 돌려도 answers.jsonl에 둘 다 남아야 한다.
-    # 이 run의 .partial만 모으면 이전 run 결과가 사라진다. (#23 3절)
-    all_partials = sorted((base_dir / "runs").glob("*/.partial/*.jsonl"))
-    with open(answers_path, "w", encoding="utf-8") as out_f:
-        for partial_path in all_partials:
-            with open(partial_path, encoding="utf-8") as pf:
-                for line in pf:
-                    line = line.strip()
-                    if line:
-                        out_f.write(line + "\n")
-                        merged += 1
+    merged, kept, replaced, added = _upsert_answers(answers_path, base_dir / "runs")
+    print(
+        f"[병합] {answers_path} — 총 {merged}줄 "
+        f"(유지 {kept} / 교체 {replaced} / 신규 {added})",
+        file=sys.stderr,
+    )
 
     finished_at = datetime.now(timezone.utc).isoformat()
 
@@ -622,6 +713,7 @@ def run_batch(
         "corpus_snapshot": corpus_meta.get("corpus_snapshot"),
         "corpus_version": corpus_meta.get("corpus_version"),
         "wiki_corpus_source": corpus_meta.get("wiki_corpus_source"),
+        "wiki_corpus_snapshot": corpus_meta.get("wiki_corpus_snapshot"),
         "questions_sha256": questions_sha256,
         "reasoning_effort": REASONING_EFFORT_LABEL,
         "models": ordered_models,
@@ -722,8 +814,8 @@ def main():
         help="실행 회차 (기본 1)"
     )
     parser.add_argument(
-        "--run-label", default="test_low_0928",
-        help="출력 상위 폴더 이름 (기본: test_low_0928)"
+        "--run-label", required=True,
+        help="출력 상위 폴더 이름. 필수 — 기본값을 두면 새 실행이 기존 결과 폴더에 섞인다 (#23 3절)"
     )
     parser.add_argument(
         "--questions", default="benchmark/questions_v1.jsonl",
@@ -740,7 +832,11 @@ def main():
     )
     parser.add_argument(
         "--allow-corpus-mismatch", action="store_true",
-        help="위키가 corpus/processed/documents.jsonl 로 컴파일된 게 아니어도 강행 (#23 1-4)"
+        help="위키가 지정 코퍼스로 컴파일된 게 아니어도 강행 (#23 1-4)"
+    )
+    parser.add_argument(
+        "--allow-config-change", action="store_true",
+        help="기존 partial 과 config_hash 가 달라도 이어서 실행 (#23 3절)"
     )
     args = parser.parse_args()
 
@@ -768,6 +864,7 @@ def main():
         verbose=args.verbose,
         limit=args.limit,
         allow_corpus_mismatch=args.allow_corpus_mismatch,
+        allow_config_change=args.allow_config_change,
     )
 
 

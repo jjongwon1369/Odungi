@@ -11,7 +11,7 @@ System A / B(RAG 계열)와의 핵심 대조점이다.
 컴파일한다. 282개 문서 → 34개 페이지. 모든 페이지가 `source_paths`, SSOT `commit_hash`,
 `corpus_source` 를 프론트매터로 기록한다. 코퍼스가 갱신될 때만 다시 수행한다.
 
-**입력은 `corpus/processed/documents.jsonl` 이다.** `corpus/HANDOFF.md` 가 정한
+**입력은 `corpus/tiers/c3/processed/documents.jsonl` 이다.** `corpus/HANDOFF.md` 가 정한
 "RAG와 LLM Wiki가 함께 사용하는 282개 정규화 문서"이며, 원본 전문(`corpus/raw/`)을
 읽으면 System A / B 와 입력 범위가 달라진다. 구축에 쓴 토큰은 위키 루트의
 `build_tokens.json` 에 4열로 기록된다(질의 단계 토큰과 합산하지 않는다).
@@ -40,7 +40,7 @@ System A / B(RAG 계열)와의 핵심 대조점이다.
 
 | 항목 | 맞춘 내용 |
 | --- | --- |
-| 입력 범위 | `corpus/processed/documents.jsonl` (A·B와 동일) |
+| 입력 범위 | `corpus/tiers/c3/processed/documents.jsonl` (A·B와 동일) |
 | 생성 규칙 | 제공 자료 밖 지식 금지 / 식별자 원문 표기 / 근거 표시 / 간결성 |
 | 기권 문구 | `제공된 문서에서 확인되지 않음` (마침표 없음, A의 `ABSTAIN_PHRASE` 와 동일) |
 | 기권 판정 | 완전일치가 아니라 포함 여부 |
