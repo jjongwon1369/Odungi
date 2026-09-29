@@ -148,13 +148,13 @@ def _to_answer_record(
     cache_write = tu.get("cache_write")
     output = tu.get("output_tokens")
 
-    # uncached_input: prompt - cache_read (OpenAI 방식; None이면 그대로 None)
-    if prompt is not None and cache_read is not None:
-        uncached_input = max(0, prompt - cache_read)
-    elif prompt is not None:
-        uncached_input = prompt
-    else:
-        uncached_input = None
+    # 공용 TokenUsage 스키마는 네 칸 모두 int(기본 0)이므로 None은 0으로 통일한다.
+    prompt = prompt or 0
+    cache_read = cache_read or 0
+    cache_write = cache_write or 0
+    output = output or 0
+    # prompt는 모든 provider에서 캐시 포함 전체 입력이므로 읽기·쓰기를 모두 뺀다.
+    uncached_input = max(0, prompt - cache_read - cache_write)
 
     answer = result.get("answer", "")
     abstained = answer.strip() == ABSTAIN_TEXT
@@ -201,7 +201,8 @@ def _to_answer_record(
         "turns": result.get("turns", 0),
         "wiki_build": wiki_build,
         "wiki_label": wiki_label,
-        "reasoning_effort": REASONING_EFFORT_LABEL,
+        # 실제로 전송된 경우에만 라벨을 남긴다 (전송 안 됐는데 low로 기록되는 것 방지)
+        "reasoning_effort": REASONING_EFFORT_LABEL if result.get("reasoning_applied") else None,
         "reasoning_config": result.get("reasoning_config_sent"),
         "reasoning_applied": result.get("reasoning_applied", False),
         "abstained": abstained,

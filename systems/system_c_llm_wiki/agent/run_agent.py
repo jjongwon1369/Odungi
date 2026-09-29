@@ -277,7 +277,8 @@ def _tokens_responses(usage) -> dict:
     return {
         "prompt_tokens": getattr(usage, "input_tokens", None),
         "cache_read": cache_read,
-        "cache_write": getattr(usage, "cache_write_tokens", None),
+        # Responses API: 캐시 쓰기는 input_tokens_details 안에 있다 (최상위 아님)
+        "cache_write": getattr(details, "cache_write_tokens", None) if details else None,
         "output_tokens": getattr(usage, "output_tokens", None),
     }
 
@@ -286,11 +287,22 @@ def _tokens_chat(usage) -> dict:
     if usage is None:
         return {"prompt_tokens": None, "cache_read": None, "cache_write": None, "output_tokens": None}
     details = getattr(usage, "prompt_tokens_details", None)
+    # 캐시 읽기 위치가 provider마다 다르다:
+    #   OpenAI 호환 표준 prompt_tokens_details.cached_tokens,
+    #   DeepSeek 최상위 prompt_cache_hit_tokens, Kimi 최상위 cached_tokens
     cache_read = getattr(details, "cached_tokens", None) if details else None
+    if cache_read is None:
+        cache_read = getattr(usage, "prompt_cache_hit_tokens", None)
+    if cache_read is None:
+        cache_read = getattr(usage, "cached_tokens", None)
+    # 캐시 쓰기: Kimi는 prompt_tokens_details.cache_write_tokens
+    cache_write = getattr(details, "cache_write_tokens", None) if details else None
+    if cache_write is None:
+        cache_write = getattr(usage, "cache_write_tokens", None)
     return {
         "prompt_tokens": getattr(usage, "prompt_tokens", None),
         "cache_read": cache_read,
-        "cache_write": getattr(usage, "cache_write_tokens", None),
+        "cache_write": cache_write,
         "output_tokens": getattr(usage, "completion_tokens", None),
     }
 
@@ -298,10 +310,16 @@ def _tokens_chat(usage) -> dict:
 def _tokens_anthropic(usage) -> dict:
     if usage is None:
         return {"prompt_tokens": None, "cache_read": None, "cache_write": None, "output_tokens": None}
+    # Anthropic input_tokens는 캐시 읽기·쓰기를 뺀 나머지다.
+    # OpenAI와 같은 기준(캐시 포함 전체)으로 맞춰 prompt_tokens에 합친다.
+    inp = getattr(usage, "input_tokens", None)
+    cr = getattr(usage, "cache_read_input_tokens", None)
+    cw = getattr(usage, "cache_creation_input_tokens", None)
+    total = None if inp is None else inp + (cr or 0) + (cw or 0)
     return {
-        "prompt_tokens": getattr(usage, "input_tokens", None),
-        "cache_read": getattr(usage, "cache_read_input_tokens", None),
-        "cache_write": getattr(usage, "cache_creation_input_tokens", None),
+        "prompt_tokens": total,
+        "cache_read": cr,
+        "cache_write": cw,
         "output_tokens": getattr(usage, "output_tokens", None),
     }
 
@@ -573,7 +591,8 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
             "messages": messages,
             "tools": tools,
             "tool_choice": "auto",
-            "max_tokens": 16000,
+            # DeepSeek은 max_tokens만 읽고, A·B는 그 외 모델에 max_completion_tokens를 쓴다
+            model_cfg.get("max_tokens_param", "max_tokens"): 16000,
         }
         req = {**base_req, **active_reasoning} if (active_reasoning and not reasoning_rejected) else base_req
 
