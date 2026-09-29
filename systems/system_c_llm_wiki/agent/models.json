@@ -4,29 +4,48 @@
     "model_id": "gpt-6-luna",
     "key_env": "OPENAI_API_KEY",
     "base_url_env": "OPENAI_BASE_URL",
-    "reasoning_config": {"reasoning": {"effort": "low"}}
+    "reasoning_config": {
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    "base_url": "https://api.openai.com/v1"
   },
   "gpt-6-sol": {
     "provider": "openai",
     "model_id": "gpt-6-sol",
     "key_env": "OPENAI_API_KEY",
     "base_url_env": "OPENAI_BASE_URL",
-    "reasoning_config": {}
+    "reasoning_config": {
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    "base_url": "https://api.openai.com/v1"
   },
   "gpt-5.6-sol": {
     "provider": "openai",
     "model_id": "gpt-5.6-sol",
     "key_env": "OPENAI_API_KEY",
     "base_url_env": "OPENAI_BASE_URL",
-    "reasoning_config": {}
+    "reasoning_config": {
+      "reasoning": {
+        "effort": "low"
+      }
+    },
+    "base_url": "https://api.openai.com/v1"
   },
   "claude-sonnet-5": {
     "provider": "anthropic",
     "model_id": "claude-sonnet-5",
     "key_env": "ANTHROPIC_API_KEY",
     "reasoning_config": {
-      "thinking": {"type": "adaptive"},
-      "output_config": {"effort": "low"}
+      "thinking": {
+        "type": "adaptive"
+      },
+      "output_config": {
+        "effort": "low"
+      }
     }
   },
   "claude-opus-5-5": {
@@ -34,8 +53,12 @@
     "model_id": "claude-opus-5-5",
     "key_env": "ANTHROPIC_API_KEY",
     "reasoning_config": {
-      "thinking": {"type": "adaptive"},
-      "output_config": {"effort": "low"}
+      "thinking": {
+        "type": "adaptive"
+      },
+      "output_config": {
+        "effort": "low"
+      }
     }
   },
   "deepseek-flash": {
@@ -43,14 +66,22 @@
     "model_id": "deepseek-flash",
     "key_env": "DEEPSEEK_API_KEY",
     "base_url_env": "DEEPSEEK_BASE_URL",
-    "reasoning_config": {}
+    "reasoning_config": {
+      "reasoning_effort": "low"
+    },
+    "base_url": "https://api.deepseek.com",
+    "max_tokens_param": "max_tokens"
   },
   "kimi-k3": {
     "provider": "openai_compatible",
     "model_id": "kimi-k3",
     "key_env": "MOONSHOT_API_KEY",
     "base_url_env": "MOONSHOT_BASE_URL",
-    "reasoning_config": {},
-    "min_interval_s": 21
+    "reasoning_config": {
+      "reasoning_effort": "low"
+    },
+    "min_interval_s": 21,
+    "base_url": "https://api.moonshot.ai/v1",
+    "max_tokens_param": "max_completion_tokens"
   }
 }

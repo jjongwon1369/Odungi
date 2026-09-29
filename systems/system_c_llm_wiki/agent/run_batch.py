@@ -31,7 +31,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from run_agent import run_agent, _load_models
+from run_agent import run_agent, _load_models, reset_interval_wait, get_interval_wait_s
 
 # ---------------------------------------------------------------------------
 # 상수
@@ -122,7 +122,8 @@ def _sort_models_kimi_first(models: list[str]) -> list[str]:
 # AnswerRecord 생성
 # ---------------------------------------------------------------------------
 
-ABSTAIN_TEXT = "제공된 문서에서 확인되지 않음."
+# A·B와 동일하게 마침표 없는 문구를 기준으로, 답변에 포함되어 있으면 기권으로 본다.
+ABSTAIN_TEXT = "제공된 문서에서 확인되지 않음"
 
 
 def _to_answer_record(
@@ -148,16 +149,16 @@ def _to_answer_record(
     cache_write = tu.get("cache_write")
     output = tu.get("output_tokens")
 
-    # uncached_input: prompt - cache_read (OpenAI 방식; None이면 그대로 None)
-    if prompt is not None and cache_read is not None:
-        uncached_input = max(0, prompt - cache_read)
-    elif prompt is not None:
-        uncached_input = prompt
-    else:
-        uncached_input = None
+    # 공용 TokenUsage 스키마는 네 칸 모두 int(기본 0)이므로 None은 0으로 통일한다.
+    prompt = prompt or 0
+    cache_read = cache_read or 0
+    cache_write = cache_write or 0
+    output = output or 0
+    # prompt는 모든 provider에서 캐시 포함 전체 입력이므로 읽기·쓰기를 모두 뺀다.
+    uncached_input = max(0, prompt - cache_read - cache_write)
 
     answer = result.get("answer", "")
-    abstained = answer.strip() == ABSTAIN_TEXT
+    abstained = ABSTAIN_TEXT in answer
 
     return {
         # ---- v0.3 기존 필드 (변경 금지) ----
@@ -201,7 +202,8 @@ def _to_answer_record(
         "turns": result.get("turns", 0),
         "wiki_build": wiki_build,
         "wiki_label": wiki_label,
-        "reasoning_effort": REASONING_EFFORT_LABEL,
+        # 실제로 전송된 경우에만 라벨을 남긴다 (전송 안 됐는데 low로 기록되는 것 방지)
+        "reasoning_effort": REASONING_EFFORT_LABEL if result.get("reasoning_applied") else None,
         "reasoning_config": result.get("reasoning_config_sent"),
         "reasoning_applied": result.get("reasoning_applied", False),
         "abstained": abstained,
@@ -312,6 +314,7 @@ def run_batch(
                         end=" ", flush=True, file=sys.stderr,
                     )
                     t0 = time.time()
+                    reset_interval_wait()
                     error = None
                     result: dict = {}
                     q_status = "ok"
@@ -330,7 +333,8 @@ def run_batch(
                         error = f"{e.__class__.__name__}: {e}"
                         print(f"ERR({error[:60]})", file=sys.stderr)
 
-                    elapsed_ms = int((time.time() - t0) * 1000)
+                    # Kimi 호출 간격 대기(min_interval_s)는 A·B처럼 지연에서 제외한다
+                    elapsed_ms = int((time.time() - t0 - get_interval_wait_s()) * 1000)
 
                     record = _to_answer_record(
                         q, result,
@@ -367,6 +371,8 @@ def run_batch(
                             "cache_read": td.get("cache_read"),
                             "cache_write": td.get("cache_write"),
                             "output_tokens": td.get("output_tokens"),
+                            "finish_reason": td.get("finish_reason"),
+                            "usage_raw": td.get("usage_raw"),
                         }
                         inv_f.write(json.dumps(inv_line, ensure_ascii=False) + "\n")
                     inv_f.flush()
