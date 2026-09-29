@@ -21,7 +21,9 @@
 ## 불변식 (바꾸려면 팀 합의 필요)
 
 - **SSOT**: connectedhomeip 커밋 `1ac132b5ecd42cb6c78772f2576ed6f7fc814183`. 모든 산출물이 이 해시를 프론트매터에 기록한다.
-- **코퍼스**: `corpus/raw/connectedhomeip` 282개 파일. 로컬에서 `scripts/corpus/extract_corpus.py` 로 생성하며 git에 커밋하지 않는다(라이선스 검토 미완).
+- **코퍼스**: 위키 컴파일러의 입력은 **`corpus/processed/documents.jsonl`** (팀 공용 정규화 산출물, 282개 문서 / 264 whole · 18 trimmed)이다.
+  `corpus/raw/connectedhomeip` 원본을 컴파일러가 직접 읽지 않는다 — System A/B와 입력 범위를 맞추기 위한 조건이며 이슈 #23 1·4절의 핵심.
+  두 경로 모두 로컬에서 `scripts/corpus/extract_corpus.py` 로 생성하며 git에 커밋하지 않는다(라이선스 검토 미완).
 - **범위**: `corpus/metadata/scope.json` 이 정의하는 4 Device Type / 23 Cluster. 코드에서 하드코딩으로 대체하지 말고 런타임에 읽는다.
 - **생성 모델**: System A/B/C가 반드시 동일 모델을 사용한다. 현재 `gpt-5.6-luna` (Azure OpenAI 게이트웨이).
 - **질의 방식**: 에이전트 페이지 탐색형 (수행계획 발표 시 확정). 정적 전체주입 아님.
@@ -30,7 +32,7 @@
 
 ### 1단계 — 오프라인 위키 컴파일 (`compiler/compile_wiki.py`)
 
-코퍼스를 **엔티티 단위**(클러스터 / 디바이스 타입 / 공유 베이스)로 묶어 **엔티티당 페이지 1개**로 컴파일한다. 282개 파일 → 34개 엔티티.
+`corpus/processed/documents.jsonl` 의 문서를 **엔티티 단위**(클러스터 / 디바이스 타입 / 공유 베이스)로 묶어 **엔티티당 페이지 1개**로 컴파일한다. 282개 문서 → 34개 엔티티.
 
 **왜 엔티티 단위인가**: 한 클러스터의 정보가 스펙 XML · SDK 정의 XML · 구현 C++ · README에 흩어져 있다. 파일 단위나 콘텐츠 종류 단위로 쪼개면 질의 시 한 기능을 이해하는 데 여러 페이지를 열어야 한다. (초기 스캐폴드가 `cluster/`, `device_type/`, `implementation/`, `commissioning/` 종류별 분리였는데 이 이유로 폐기했다.)
 
@@ -56,9 +58,12 @@ systems/system_c_llm_wiki/
 ├── compiler/compile_wiki.py    위키 컴파일러
 ├── validation/validate_wiki.py 출처·식별자 보존·토큰 수 검증
 ├── linker/crosslink_wiki.py    상호링크 생성기
-├── agent/run_agent.py          에이전트 루프 (질의응답)
+├── agent/run_agent.py          에이전트 루프 (질의 1건)
+├── agent/run_batch.py          40문항 × N모델 배치 실행 + 팀 공용 레코드 생성
+├── agent/models.json           모델별 provider / reasoning 설정
 └── wiki/                       컴파일 산출물 (손으로 수정하지 않는다)
     ├── base/  clusters/  device-types/  examples/  guides/  misc/
+    └── build_tokens.json       컴파일 토큰 4열 집계 (위키 구축 비용)
 ```
 
 ## 명령어
@@ -102,7 +107,7 @@ python3 systems/system_c_llm_wiki/agent/run_agent.py \
 ## 환경
 
 - API 키와 엔드포인트는 리포 루트 `.env.local` 에만 둔다. **절대 커밋하거나 대화/스크린샷에 노출하지 않는다.** (`.gitignore` 에 등록되어 있음)
-- 엔드포인트는 Azure OpenAI 게이트웨이(`.../openai/v1`)이며 OpenAI SDK + `base_url` 로 붙는다. `OPENAI_BASE_URL`, `OPENAI_API_KEY` 사용.
+- 각 provider는 SDK 기본 엔드포인트로 붙는다. 코드에 `*_BASE_URL` 환경변수 의존이 없다 — 환경변수로 엔드포인트가 조용히 바뀌면 어느 엔드포인트로 실험했는지 재현할 수 없기 때문(이슈 #23 2절). 키만 `.env.local` 에 둔다: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`.
 - 이 게이트웨이는 `usage.prompt_tokens_details.cached_tokens`(cache_read), `cache_write_tokens`(cache_creation), `completion_tokens`(output)를 제공하므로 팀 공용 스키마의 **토큰 4열을 그대로 채울 수 있다**. 토큰은 절대 합산하지 말 것 — 베이스라인 논문이 합산 때문에 비용 가설 판정에 실패했다.
 - 도구 호출(function calling) 지원 확인됨 → 에이전트 루프 구현 가능.
 
@@ -112,6 +117,8 @@ python3 systems/system_c_llm_wiki/agent/run_agent.py \
 - **큰 엔티티 타임아웃**: Thermostat(54개 파일), Scenes(21개) 같은 엔티티는 입력이 수만 토큰이라 타임아웃/연결 오류가 난다. `_TRANSIENT_ERROR_HINTS` 에 타임아웃 계열을 포함시켜 재시도하도록 되어 있다.
 - **코퍼스 메타데이터 불일치 (미해결)**: 로컬 추출 시 `snapshot.json` 의 `origin` 이 `DS-J-L/connectedhomeip` → `project-chip/connectedhomeip` 로, `validation_report.json` 의 `artifact_set_hash` 가 `43eb0ad2...` → `a44005d0...` 로 달라진다. 같은 SSOT 커밋인데 해시가 다른 건 결정적 재현성 문제라 이동수님 확인 대기 중. 이 두 파일은 커밋하지 말 것.
 - **`scope.json` 의 `cluster_base`**: `source_role` 이 `specification` / `sdk_codegen` 두 항목으로 나뉘어 있고 파일명 stem이 제각각(`ModeBase`, `mode-base-cluster`)이다. `CLUSTER_BASE_CANONICAL_NAME` 로 정규화해 한 엔티티로 묶는다.
+- **컴파일러 입력은 `documents.jsonl` 뿐**: `corpus/raw` 를 직접 읽으면 scope 밖 디바이스 타입까지 위키에 들어가 System A/B와 입력 범위가 달라진다(실제로 발생 → 7개 페이지 오염, 이슈 #23). `CORPUS_DOCS` 환경변수로 경로만 바꿀 수 있다.
+- **400 응답은 재시도하지 않는다**: 추론 강도 파라미터가 거부됐을 때 조용히 빼고 다시 부르면 "추론 강도 low 고정"이라는 통제가 깨진 채 정상 종료된 것처럼 보인다. 그래서 400은 그대로 실패로 기록한다.
 - **병합된 엔티티의 `.name`**: 여러 클러스터가 한 엔티티로 합쳐지면 `.name` 은 먼저 등록된 클러스터명으로 고정된다. 이름으로 역탐색하지 말고 `cluster_name_to_key` 를 쓴다.
 
 ## 현재 상태
@@ -124,6 +131,10 @@ python3 systems/system_c_llm_wiki/agent/run_agent.py \
 - [x] PR 생성 — [#6](https://github.com/jjongwon1369/Odungi/pull/6)
 - [x] 상호링크 생성 — `linker/crosslink_wiki.py` (28개 페이지)
 - [x] 에이전트 루프 구현 — `agent/run_agent.py`
+- [x] 7종 모델 × 40문항 배치 실행 — `agent/run_batch.py`, 280레코드
+- [x] 이슈 #23 1~3절 반영 (입력을 `documents.jsonl` 로 교체 / 400 재시도 제거 / 레코드 필드 보강)
+- [ ] 위키 재구축 (`documents.jsonl` 입력, `--force`)
+- [ ] 7종 재실행 및 결과 갱신
 
 페이지가 어떤 모델로 만들어졌는지는 프론트매터 `compiled_by` 로 확인한다:
 `grep -h compiled_by systems/system_c_llm_wiki/wiki/*/*.md | sort | uniq -c`

@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -57,13 +58,23 @@ def _config_hash(cfg: dict) -> str:
 
 
 def _git_short_head() -> str:
+    """현재 커밋. 커밋되지 않은 변경이 있으면 -dirty를 붙인다. (#23 3절)
+
+    깨끗한 커밋에서 돌렸는지 레코드만 보고 알 수 있어야 재현이 성립한다.
+    """
+    cwd = Path(__file__).parent
     try:
-        result = subprocess.run(
+        head = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            capture_output=True, text=True,
-            cwd=Path(__file__).parent,
-        )
-        return result.stdout.strip() or "unknown"
+            capture_output=True, text=True, cwd=cwd,
+        ).stdout.strip()
+        if not head:
+            return "unknown"
+        dirty = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            capture_output=True, text=True, cwd=cwd,
+        ).stdout.strip()
+        return f"{head}-dirty" if dirty else head
     except Exception:
         return "unknown"
 
@@ -128,6 +139,46 @@ def _sort_models_kimi_first(models: list[str]) -> list[str]:
 ABSTAIN_TEXT = ABSTAIN_PHRASE
 
 
+# 식별자 추출 규칙. System A의 configs/pipeline.yaml identifiers와 동일해야
+# 무손실 검증을 같은 기준으로 대조할 수 있다. (#23 3절)
+# re.ASCII: 유니코드 \b는 한글도 단어 문자로 봐서 "0x0202입니다"를 놓친다.
+IDENTIFIER_PATTERNS = [
+    r"\b0x[0-9A-Fa-f]{4}\b",                     # 클러스터/속성 ID
+    r"\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b",    # CamelCase
+]
+IDENTIFIER_STOPWORDS = {"GitHub", "JavaScript", "TypeScript", "README"}
+
+
+def _extract_identifiers(text: str) -> list:
+    found: list = []
+    seen: set = set()
+    for pat in IDENTIFIER_PATTERNS:
+        for m in re.finditer(pat, text or "", re.ASCII):
+            tok = m.group(0)
+            if tok in IDENTIFIER_STOPWORDS or tok in seen:
+                continue
+            seen.add(tok)
+            found.append(tok)
+    return found
+
+
+def _build_citations(result: dict, wiki_root: str) -> list:
+    """cited_pages를 공용 Citation 형식으로 옮긴다. (#23 3절)
+
+    RAG의 chunk_id 자리에 위키 페이지 ID가, source_path에 그 페이지 파일이 들어간다.
+    재순위 단계가 없으므로 rerank_score는 None.
+    """
+    root = wiki_root.rstrip("/")
+    return [
+        {
+            "chunk_id": pid,
+            "source_path": f"{root}/{pid}.md",
+            "rerank_score": None,
+        }
+        for pid in (result.get("cited_pages") or [])
+    ]
+
+
 def _to_answer_record(
     q: dict,
     result: dict,
@@ -136,6 +187,7 @@ def _to_answer_record(
     run: int,
     wiki_label: str,
     wiki_build: str,
+    wiki_root: str,
     questions_sha256: str,
     agent_commit: str,
     trace_path: str,
@@ -172,7 +224,7 @@ def _to_answer_record(
         "query_mode": "simple",
         "question": q["question"],
         "answer": answer,
-        "citations": [],
+        "citations": _build_citations(result, wiki_root),
         "retrieved": {
             "bm25": [],
             "vector": [],
@@ -180,7 +232,7 @@ def _to_answer_record(
             "reranked": [],
             "wiki_pages": result.get("retrieved", {}).get("wiki_pages", []),
         },
-        "identifiers_in_answer": [],
+        "identifiers_in_answer": _extract_identifiers(answer),
         "latency_ms": {
             "retrieve": 0,
             "rerank": 0,
@@ -255,21 +307,6 @@ def run_batch(
     if limit:
         questions = questions[:limit]
 
-    # ---- config_hash ----
-    cfg = {
-        "wiki_root": wiki_root,
-        "wiki_label": wiki_label,
-        "wiki_build": wiki_build,
-        "max_turns": max_turns,
-        "run_label": run_label,
-        # 생성 규칙이 바뀌면 해시가 바뀌도록 프롬프트 자체를 넣는다.
-        "system_prompt_sha256": hashlib.sha256(
-            _build_system_prompt().encode("utf-8")
-        ).hexdigest(),
-        "abstain_phrase": ABSTAIN_PHRASE,
-    }
-    cfg_hash = _config_hash(cfg)
-
     # ---- trace 경로 (run_dir 기준 상대 경로) ----
     invocations_path = run_dir / "invocations.jsonl"
     failed_attempts_path = run_dir / "failed_attempts.jsonl"
@@ -286,6 +323,23 @@ def run_batch(
 
     # ---- kimi-k3 먼저 ----
     ordered_models = _sort_models_kimi_first(models_list)
+
+    # ---- config_hash ----
+    # 실행 조건이 하나라도 바뀌면 해시가 달라지도록, 프롬프트와 모델 레지스트리를
+    # 값 그대로 넣는다. (#23 3절)
+    cfg = {
+        "wiki_root": wiki_root,
+        "wiki_label": wiki_label,
+        "wiki_build": wiki_build,
+        "max_turns": max_turns,
+        "run_label": run_label,
+        "system_prompt_sha256": hashlib.sha256(
+            _build_system_prompt().encode("utf-8")
+        ).hexdigest(),
+        "abstain_phrase": ABSTAIN_PHRASE,
+        "models": {name: models_db.get(name, {}) for name in sorted(ordered_models)},
+    }
+    cfg_hash = _config_hash(cfg)
 
     started_at = datetime.now(timezone.utc).isoformat()
     summary_models: dict[str, dict] = {}
@@ -339,6 +393,13 @@ def run_batch(
                         q_status = "error"
                         error = f"{e.__class__.__name__}: {e}"
                         print(f"ERR({error[:60]})", file=sys.stderr)
+                        # 재시도 기록뿐 아니라 최종 실패도 남긴다. (#23 3절)
+                        result.setdefault("failed_attempts", []).append({
+                            "attempt": "final",
+                            "error": error[:500],
+                            "wait_s": 0,
+                            "ts": time.time(),
+                        })
 
                     # Kimi 호출 간격 대기(min_interval_s)는 A·B처럼 지연에서 제외한다
                     elapsed_ms = int((time.time() - t0 - get_interval_wait_s()) * 1000)
@@ -349,6 +410,7 @@ def run_batch(
                         run=run,
                         wiki_label=wiki_label,
                         wiki_build=wiki_build,
+                        wiki_root=wiki_root,
                         questions_sha256=questions_sha256,
                         agent_commit=agent_commit,
                         trace_path=trace_path_rel,
@@ -425,8 +487,11 @@ def run_batch(
     # 일부 모델만 재실행해도 나머지 모델 답변이 사라지지 않는다.
     answers_path = base_dir / "answers.jsonl"
     merged = 0
+    # run 1만 돌리고 나중에 run 2를 돌려도 answers.jsonl에 둘 다 남아야 한다.
+    # 이 run의 .partial만 모으면 이전 run 결과가 사라진다. (#23 3절)
+    all_partials = sorted((base_dir / "runs").glob("*/.partial/*.jsonl"))
     with open(answers_path, "w", encoding="utf-8") as out_f:
-        for partial_path in sorted(partial_dir.glob("*.jsonl")):
+        for partial_path in all_partials:
             with open(partial_path, encoding="utf-8") as pf:
                 for line in pf:
                     line = line.strip()

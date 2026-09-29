@@ -72,11 +72,9 @@ def _get_timeout() -> int:
 def _get_route(model_cfg: dict) -> str:
     if model_cfg.get("provider") == "anthropic":
         return "anthropic"
+    # 엔드포인트는 models.json에만 적는다. 환경변수로 바뀌면 실행마다 조건이
+    # 달라져도 레코드에 드러나지 않는다. (#23 2절)
     base_url = model_cfg.get("base_url") or ""
-    if not base_url:
-        env_key = model_cfg.get("base_url_env")
-        if env_key:
-            base_url = os.environ.get(env_key, "") or ""
     if not base_url or "api.openai.com" in base_url:
         return "openai_responses"
     return "openai_chat"
@@ -94,11 +92,7 @@ def _make_openai_client(model_cfg: dict):
     key = os.environ.get(model_cfg["key_env"])
     if not key:
         raise ValueError(f"환경변수 {model_cfg['key_env']}가 설정되지 않았습니다.")
-    base_url = model_cfg.get("base_url") or ""
-    if not base_url:
-        env_key = model_cfg.get("base_url_env")
-        if env_key:
-            base_url = os.environ.get(env_key, "") or None
+    base_url = model_cfg.get("base_url") or None
     kwargs: dict = {"api_key": key, "timeout": _get_timeout()}
     if base_url:
         kwargs["base_url"] = base_url
@@ -477,7 +471,6 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
     active_reasoning = dict(reasoning_cfg)
     reasoning_applied = bool(reasoning_cfg)
     reasoning_note = None
-    reasoning_rejected = False
 
     input_items: list = [
         {"role": "system", "content": sys_prompt},
@@ -492,6 +485,7 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
     all_failed: list = []
     total_usage = {"prompt_tokens": None, "cache_read": None, "cache_write": None, "output_tokens": None}
     status = "ok"
+    submitted = False   # submit_answer로 끝났는가 (#23 3절)
 
     for turn in range(1, max_turns + 1):
         if verbose:
@@ -504,31 +498,15 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
             "tools": tools,
             "max_output_tokens": 16000,
         }
-        req_with_r = {**req, **active_reasoning} if (active_reasoning and not reasoning_rejected) else req
+        req_with_r = {**req, **active_reasoning} if active_reasoning else req
 
-        try:
-            response, failed = _call_api(
-                lambda r=req_with_r: client.responses.create(**r),
-                model_key, min_interval_s,
-            )
-            all_failed.extend(failed)
-        except Exception as e:
-            err_str = str(e)
-            if (("400" in err_str or getattr(e, "status_code", None) == 400)
-                    and active_reasoning and not reasoning_rejected):
-                if verbose:
-                    print(f"  [재시도] 400 오류, reasoning 제거: {e}", file=sys.stderr)
-                active_reasoning = {}
-                reasoning_applied = False
-                reasoning_note = "provider rejected"
-                reasoning_rejected = True
-                response, failed = _call_api(
-                    lambda r=req: client.responses.create(**r),
-                    model_key, min_interval_s,
-                )
-                all_failed.extend(failed)
-            else:
-                raise
+        # 400(파라미터 거부) 시 자동 재시도하지 않는다.
+        # 추론 강도를 조용히 빼고 다시 부르면 통제 실패가 정상 종료로 가려진다. (#23 2절)
+        response, failed = _call_api(
+            lambda r=req_with_r: client.responses.create(**r),
+            model_key, min_interval_s,
+        )
+        all_failed.extend(failed)
 
         usage = _tokens_responses(getattr(response, "usage", None))
         total_usage = _sum_tokens(total_usage, usage)
@@ -552,6 +530,7 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
                     answer = ans
                     cited_pages = cited
                     final_answer_found = True
+                    submitted = True
 
                 turn_calls.append({
                     "tool": fn_name,
@@ -597,6 +576,11 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
     else:
         status = "max_turns"
 
+    if status == "ok" and not submitted:
+        # 도구를 쓰지 않고 본문만 반환하거나 stop_reason으로 끝난 경우.
+        # 근거 페이지가 없으므로 정상 제출과 구분한다. (#23 3절)
+        status = "no_submit"
+
     return _make_result(
         query, answer, retrieved_pages, cited_pages, turn_details, total_usage,
         page_evidence, reasoning_applied, reasoning_note,
@@ -620,7 +604,6 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
     active_reasoning = dict(reasoning_cfg)
     reasoning_applied = bool(reasoning_cfg)
     reasoning_note = None
-    reasoning_rejected = False
 
     messages = [
         {"role": "system", "content": sys_prompt},
@@ -635,6 +618,7 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
     all_failed: list = []
     total_usage = {"prompt_tokens": None, "cache_read": None, "cache_write": None, "output_tokens": None}
     status = "ok"
+    submitted = False   # submit_answer로 끝났는가 (#23 3절)
 
     for turn in range(1, max_turns + 1):
         if verbose:
@@ -648,31 +632,15 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
             # DeepSeek은 max_tokens만 읽고, A·B는 그 외 모델에 max_completion_tokens를 쓴다
             model_cfg.get("max_tokens_param", "max_tokens"): 16000,
         }
-        req = {**base_req, **active_reasoning} if (active_reasoning and not reasoning_rejected) else base_req
+        req = {**base_req, **active_reasoning} if active_reasoning else base_req
 
-        try:
-            response, failed = _call_api(
-                lambda r=req: client.chat.completions.create(**r),
-                model_key, min_interval_s,
-            )
-            all_failed.extend(failed)
-        except Exception as e:
-            err_str = str(e)
-            if (("400" in err_str or getattr(e, "status_code", None) == 400)
-                    and active_reasoning and not reasoning_rejected):
-                if verbose:
-                    print(f"  [재시도] 400 오류, reasoning 제거: {e}", file=sys.stderr)
-                active_reasoning = {}
-                reasoning_applied = False
-                reasoning_note = "provider rejected"
-                reasoning_rejected = True
-                response, failed = _call_api(
-                    lambda r=base_req: client.chat.completions.create(**r),
-                    model_key, min_interval_s,
-                )
-                all_failed.extend(failed)
-            else:
-                raise
+        # 400(파라미터 거부) 시 자동 재시도하지 않는다.
+        # 추론 강도를 조용히 빼고 다시 부르면 통제 실패가 정상 종료로 가려진다. (#23 2절)
+        response, failed = _call_api(
+            lambda r=req: client.chat.completions.create(**r),
+            model_key, min_interval_s,
+        )
+        all_failed.extend(failed)
 
         msg = response.choices[0].message
         usage = _tokens_chat(getattr(response, "usage", None))
@@ -697,6 +665,7 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
                     answer = ans
                     cited_pages = cited
                     final_answer_found = True
+                    submitted = True
 
                 turn_calls.append({
                     "tool": fn_name,
@@ -726,6 +695,11 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
     else:
         status = "max_turns"
 
+    if status == "ok" and not submitted:
+        # 도구를 쓰지 않고 본문만 반환하거나 stop_reason으로 끝난 경우.
+        # 근거 페이지가 없으므로 정상 제출과 구분한다. (#23 3절)
+        status = "no_submit"
+
     return _make_result(
         query, answer, retrieved_pages, cited_pages, turn_details, total_usage,
         page_evidence, reasoning_applied, reasoning_note,
@@ -749,7 +723,6 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
     active_reasoning = dict(reasoning_cfg)
     reasoning_applied = bool(reasoning_cfg)
     reasoning_note = None
-    reasoning_rejected = False
 
     messages = [{"role": "user", "content": query}]
 
@@ -761,6 +734,7 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
     all_failed: list = []
     total_usage = {"prompt_tokens": None, "cache_read": None, "cache_write": None, "output_tokens": None}
     status = "ok"
+    submitted = False   # submit_answer로 끝났는가 (#23 3절)
 
     for turn in range(1, max_turns + 1):
         if verbose:
@@ -773,31 +747,15 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
             "messages": messages,
             "tools": tools,
         }
-        req = {**base_req, **active_reasoning} if (active_reasoning and not reasoning_rejected) else base_req
+        req = {**base_req, **active_reasoning} if active_reasoning else base_req
 
-        try:
-            response, failed = _call_api(
-                lambda r=req: client.messages.create(**r),
-                model_key, min_interval_s,
-            )
-            all_failed.extend(failed)
-        except Exception as e:
-            err_str = str(e)
-            if (("400" in err_str or getattr(e, "status_code", None) == 400)
-                    and active_reasoning and not reasoning_rejected):
-                if verbose:
-                    print(f"  [재시도] 400 오류, reasoning 제거: {e}", file=sys.stderr)
-                active_reasoning = {}
-                reasoning_applied = False
-                reasoning_note = "provider rejected"
-                reasoning_rejected = True
-                response, failed = _call_api(
-                    lambda r=base_req: client.messages.create(**r),
-                    model_key, min_interval_s,
-                )
-                all_failed.extend(failed)
-            else:
-                raise
+        # 400(파라미터 거부) 시 자동 재시도하지 않는다.
+        # 추론 강도를 조용히 빼고 다시 부르면 통제 실패가 정상 종료로 가려진다. (#23 2절)
+        response, failed = _call_api(
+            lambda r=req: client.messages.create(**r),
+            model_key, min_interval_s,
+        )
+        all_failed.extend(failed)
 
         usage = _tokens_anthropic(getattr(response, "usage", None))
         total_usage = _sum_tokens(total_usage, usage)
@@ -825,6 +783,7 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
                     answer = ans
                     cited_pages = cited
                     final_answer_found = True
+                    submitted = True
 
                 turn_calls.append({
                     "tool": fn_name,
@@ -862,6 +821,11 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
             break
     else:
         status = "max_turns"
+
+    if status == "ok" and not submitted:
+        # 도구를 쓰지 않고 본문만 반환하거나 stop_reason으로 끝난 경우.
+        # 근거 페이지가 없으므로 정상 제출과 구분한다. (#23 3절)
+        status = "no_submit"
 
     return _make_result(
         query, answer, retrieved_pages, cited_pages, turn_details, total_usage,

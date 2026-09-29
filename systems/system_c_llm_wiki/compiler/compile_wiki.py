@@ -100,7 +100,8 @@ def _call_with_retries(fn, tries: int = 2, base_delay: int = 8, what: str = "API
     raise last_err  # 여기 도달하면 안 되지만 안전망
 
 
-def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: str = None) -> str:
+def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: str = None):
+    """(본문, 토큰 4열 dict)을 돌려준다. 위키 구축 비용을 기록하기 위함. (#23 3절)"""
     provider = provider or MODEL_PROVIDER
     model = model or MODEL_NAME
 
@@ -119,21 +120,23 @@ def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: 
             ),
             what="Anthropic API",
         )
-        return resp.content[0].text
+        u = getattr(resp, "usage", None)
+        return resp.content[0].text, {
+            "input": getattr(u, "input_tokens", None),
+            "output": getattr(u, "output_tokens", None),
+            "cache_read": getattr(u, "cache_read_input_tokens", None),
+            "cache_creation": getattr(u, "cache_creation_input_tokens", None),
+        }
     elif provider == "openai":
         from openai import OpenAI  # pip install openai
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
             raise RuntimeError("환경변수 OPENAI_API_KEY 가 설정되어 있지 않음")
-        # 자체 게이트웨이/커스텀 엔드포인트를 쓰는 경우 base_url 을 지정한다.
-        # (OpenAI 공식 API 를 쓰면 이 변수를 비워두면 됨)
-        base_url = os.environ.get("OPENAI_BASE_URL") or None
+        # 엔드포인트는 SDK 기본값을 쓴다. 환경변수로 바꿀 수 있게 두면
+        # 어느 엔드포인트로 컴파일한 위키인지 재현할 수 없다. (#23 2절)
         # 큰 엔티티는 입력이 수만 토큰이라 기본 타임아웃으로는 부족하다.
         timeout_s = float(os.environ.get("WIKI_COMPILER_TIMEOUT", "600"))
-        kwargs = {"api_key": api_key, "timeout": timeout_s, "max_retries": 3}
-        if base_url:
-            kwargs["base_url"] = base_url
-        client = OpenAI(**kwargs)
+        client = OpenAI(api_key=api_key, timeout=timeout_s, max_retries=3)
         resp = _call_with_retries(
             lambda: client.chat.completions.create(
                 model=model,
@@ -144,7 +147,14 @@ def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: 
             ),
             what="OpenAI API",
         )
-        return resp.choices[0].message.content
+        u = getattr(resp, "usage", None)
+        det = getattr(u, "prompt_tokens_details", None) if u else None
+        return resp.choices[0].message.content, {
+            "input": getattr(u, "prompt_tokens", None),
+            "output": getattr(u, "completion_tokens", None),
+            "cache_read": getattr(det, "cached_tokens", None) if det else None,
+            "cache_creation": getattr(u, "cache_write_tokens", None),
+        }
     elif provider == "google":
         # 주의: google-generativeai(구 SDK)는 2026년에 지원 종료됨.
         # 새 SDK인 google-genai 를 써야 함: pip install -U google-genai
@@ -162,7 +172,8 @@ def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: 
             ),
             what="Gemini API",
         )
-        return resp.text
+        return resp.text, {"input": None, "output": None,
+                           "cache_read": None, "cache_creation": None}
     else:
         raise ValueError(f"알 수 없는 provider: {provider}")
 
@@ -427,7 +438,7 @@ def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str) -> Path:
         file_list = ", ".join(f"[{r}]{p}" for r, p, _ in entity.files)
         print(f"[dry-run] {entity.key} ({len(entity.files)}개 파일) -> {out_path}")
         print(f"          {file_list}")
-        return out_path
+        return out_path, {}
 
     pieces = []
     source_paths = []
@@ -435,7 +446,7 @@ def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str) -> Path:
         pieces.append((role, rel_path, text))
         source_paths.append(rel_path)
 
-    body = call_llm(SYSTEM_PROMPT, build_user_prompt(entity.name, pieces))
+    body, usage = call_llm(SYSTEM_PROMPT, build_user_prompt(entity.name, pieces))
 
     frontmatter = (
         "---\n"
@@ -450,8 +461,8 @@ def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str) -> Path:
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(frontmatter + body, encoding="utf-8")
-    print(f"[완료] {out_path}")
-    return out_path
+    print(f"[완료] {out_path}  (입력 {usage.get('input')} / 출력 {usage.get('output')} 토큰)")
+    return out_path, usage
 
 
 def main():
@@ -507,6 +518,9 @@ def main():
     failed = []
     skipped = 0
     compiled = 0
+    # 위키 구축 비용 기록. 질의 단계 토큰과 합산하지 않고 따로 남긴다. (#23 3절)
+    build_tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
+    per_entity = {}
 
     for key in keys:
         ent = entities[key]
@@ -520,8 +534,14 @@ def main():
             continue
 
         try:
-            compile_entity(ent, dry_run=args.dry_run, ssot_commit=ssot_commit)
+            _, usage = compile_entity(ent, dry_run=args.dry_run, ssot_commit=ssot_commit)
             compiled += 1
+            if usage:
+                per_entity[key] = usage
+                for col in build_tokens:
+                    v = usage.get(col)
+                    if isinstance(v, int):
+                        build_tokens[col] += v
         except Exception as e:
             # 한 엔티티가 (재시도까지 다 실패해서) 완전히 실패해도 전체를 멈추지 않고
             # 나머지 엔티티는 계속 진행. 실패한 것만 나중에 --only로 다시 돌리면 됨.
@@ -530,6 +550,23 @@ def main():
 
     if args.dry_run:
         return
+
+    token_path = WIKI_ROOT / "build_tokens.json"
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text(json.dumps({
+        "wiki_root": WIKI_ROOT.as_posix(),
+        "compiled_by": f"{MODEL_PROVIDER}/{MODEL_NAME}",
+        "corpus_source": CORPUS_DOCS.as_posix(),
+        "ssot_commit": ssot_commit,
+        "compiled_entities": compiled,
+        "skipped": skipped,
+        "failed": failed,
+        "totals": build_tokens,
+        "per_entity": per_entity,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[토큰] {token_path} 기록 — 입력 {build_tokens['input']:,} / "
+          f"출력 {build_tokens['output']:,} / 캐시읽기 {build_tokens['cache_read']:,} / "
+          f"캐시쓰기 {build_tokens['cache_creation']:,} (합산 금지)")
 
     print(f"\n[요약] 컴파일 {compiled}개 / 건너뜀 {skipped}개 / 실패 {len(failed)}개")
     if failed:
