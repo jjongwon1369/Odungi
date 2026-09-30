@@ -11,11 +11,12 @@ v1과 다른 점: corpus/metadata/scope.json 을 실시간으로 읽어서, 원�
 흩어져 5개 페이지가 되는 문제가 있었음.)
 
 사용법:
-    python3 compile_wiki.py --dry-run     # 그룹핑 결과만 확인 (API 호출 없음)
-    python3 compile_wiki.py               # 실제 컴파일
+    python3 compile_wiki.py --dry-run     # 그룹핑 결과만 확인 (API 호출 없음, 아무것도 쓰지 않음)
+    python3 compile_wiki.py               # 실제 컴파일 (먼저 <wiki_root>/wiki_manifest.json 을 쓴다)
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -39,6 +40,14 @@ CORPUS_DOCS = Path(os.environ.get("CORPUS_DOCS", "corpus/tiers/c3/processed/docu
 # 레코드와 대조할 수 있게 한다. (#23 1-4)
 # 실제로 읽은 documents.jsonl 줄에서 채운다. load_documents() 가 설정한다.
 CORPUS_SNAPSHOT_ID: str | None = None
+# 실제로 읽은 documents.jsonl 파일 바이트의 sha256. load_documents() 가 설정한다.
+# snapshot_id 는 라벨이라 본문이 달라도 같을 수 있다. A 가 색인한 파일과 같은지는
+# 이 값으로만 대조할 수 있다. (#27 A 기준 점검)
+CORPUS_DOCS_SHA256: str | None = None
+# 위키 전체의 명세. 그룹핑 직후, 엔티티를 컴파일하기 전에 쓴다. run_batch 는 여기 적힌
+# 페이지가 전부 있는지와 입력 sha256 을 보고 실행 여부를 정한다. (#27 A 기준 점검)
+MANIFEST_NAME = "wiki_manifest.json"
+MANIFEST_SCHEMA = 1
 # 호출 단위 과금 기록. create() 가 돌아오는 즉시 한 줄씩 덧붙인다.
 BUILD_CALLS_NAME = "build_calls.jsonl"
 TOKEN_COLUMNS = ("uncached_input", "cache_creation", "cache_read", "output")
@@ -454,7 +463,9 @@ def build_registry(scope: dict):
         path_to_entity[c["sdk_definition_path"]] = (key, "sdk")
         if c.get("documentation_status") == "present":
             path_to_entity[c["documentation_path"]] = (key, "doc")
-        impl_dir = str(Path(c["implementation_path"]).parent)
+        # 키는 '/' 로 적는다. str() 은 Windows 에서 '\' 가 되어 SHARED_IMPL_DIR_TO_BASE
+        # ('/' 표기)와 안 맞고, 공유 구현(mode-base-server 등)이 엉뚱한 클러스터로 간다. (#27 A 기준 점검)
+        impl_dir = Path(c["implementation_path"]).parent.as_posix()
         if impl_dir not in SHARED_IMPL_DIR_TO_BASE:
             dir_to_entity.setdefault(impl_dir, key)
 
@@ -517,7 +528,7 @@ def classify(rel_path: Path, path_to_entity: dict, dir_to_entity: dict, entities
     if rel in path_to_entity:
         return path_to_entity[rel]
 
-    parent = str(rel_path.parent)
+    parent = rel_path.parent.as_posix()   # dir_to_entity 키와 같은 '/' 표기 (#27 A 기준 점검)
     if parent in dir_to_entity:
         role = "doc" if rel_path.name == "README.md" else "impl"
         return dir_to_entity[parent], role
@@ -589,7 +600,12 @@ def load_documents() -> dict:
     prefix = "corpus/raw/connectedhomeip/"
     docs: dict = {}
     snapshot_ids: set = set()
-    for line in CORPUS_DOCS.read_text(encoding="utf-8").splitlines():
+    # 한 번 읽은 바이트로 해시와 본문을 같이 얻는다. 따로 두 번 읽으면 그 사이에
+    # 파일이 바뀌었을 때 manifest 의 sha256 이 실제로 컴파일한 본문과 어긋난다. (#27 A 기준 점검)
+    raw = CORPUS_DOCS.read_bytes()
+    global CORPUS_DOCS_SHA256
+    CORPUS_DOCS_SHA256 = hashlib.sha256(raw).hexdigest()
+    for line in raw.decode("utf-8").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -644,6 +660,81 @@ def discover_and_group():
 
     print(f"[정보] {n_files}개 파일을 {len(entities)}개 엔티티로 그룹핑함")
     return entities
+
+
+# ---------------------------------------------------------------------------
+# 5-1. 위키 manifest (#27 A 기준 점검)
+# ---------------------------------------------------------------------------
+# A 는 Retriever 가 색인 청크 수를 대조해, 색인이 빠진 폴더에서는 멈춘다. C 는 엔티티 하나가
+# 컴파일에 실패하면 그 페이지만 조용히 빠지고, 출처 검사는 있는 페이지만 본다. 그래서 컴파일을
+# 시작하기 전에 "이 위키에 있어야 할 페이지 전부"와 "무엇으로 만들었는지"를 먼저 적어 둔다.
+
+
+def build_manifest(entities, docs_meta: dict, provider: str, model: str) -> dict:
+    """그룹핑 결과 → manifest dict. API·파일을 건드리지 않는 순수 함수다.
+
+    docs_meta: {"documents_path", "documents_sha256", "snapshot_id"}
+    파일이 없는 엔티티는 main() 이 컴파일하지 않아 페이지가 생기지 않으므로 뺀다.
+    (C3 에서는 0개. 넣으면 run_batch 가 영영 없는 페이지를 기다리며 멈춘다.)
+    --only / --limit 와 무관하게 전체 엔티티로 만든다. 일부만 컴파일한 위키는 페이지가
+    모자라 run_batch 가 막아야 맞다.
+    """
+    ents = list(entities.values()) if isinstance(entities, dict) else list(entities)
+    ents = [e for e in ents if e.files]
+    pages = sorted({target_wiki_path(e).relative_to(WIKI_ROOT).as_posix() for e in ents})
+    return {
+        "schema": MANIFEST_SCHEMA,
+        "documents_path": docs_meta["documents_path"],
+        "documents_sha256": docs_meta["documents_sha256"],
+        "snapshot_id": docs_meta["snapshot_id"],
+        "compile_provider": provider,
+        "compile_model": model,
+        # 페이지 수와 다르면 두 엔티티가 한 파일로 겹친 것이다(검사기가 잡는다).
+        "entity_count": len(ents),
+        "pages": pages,
+    }
+
+
+def manifest_path() -> Path:
+    return WIKI_ROOT / MANIFEST_NAME
+
+
+def read_manifest():
+    """기존 manifest. 없으면 None, 깨졌으면 그 사실만 담은 dict (새 manifest 와 절대 같지 않다)."""
+    path = manifest_path()
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        return {"_unreadable": f"{exc.__class__.__name__}: {exc}"}
+
+
+def manifest_conflict(prior, manifest: dict, existing_pages: list):
+    """이미 있는 페이지를 건너뛰면 manifest 가 거짓이 되는 경우의 이유. 괜찮으면 None.
+
+    main() 은 기존 페이지를 --force 없이 건너뛴다(이어하기). 그 페이지가 다른 입력·다른
+    모델로 만든 것이면, 새 manifest 는 그 페이지들까지 이번 입력으로 만들었다고 적게 된다.
+    manifest 는 첫 엔티티보다 먼저 쓰이므로, 고친 컴파일러로 이어하는 위키에는 항상 있다.
+    """
+    if not existing_pages:
+        return None
+    if prior is None:
+        return f"manifest 없이 만들어진 페이지 {len(existing_pages)}개(예전 컴파일러 산출물)"
+    diff = sorted(k for k in set(prior) | set(manifest) if prior.get(k) != manifest.get(k))
+    if diff:
+        return f"기존 {MANIFEST_NAME} 와 다른 항목 {diff}"
+    return None
+
+
+def write_manifest(manifest: dict) -> Path:
+    """manifest 를 원자적으로 쓴다(임시 파일 + os.replace). 중간에 멈춰도 반쯤 쓴 파일이 남지 않는다."""
+    path = manifest_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(MANIFEST_NAME + ".tmp")
+    tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+    return path
 
 
 def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str, attempt: int = 1) -> Path:
@@ -734,6 +825,45 @@ def main():
     entities = discover_and_group()
     if not entities:
         sys.exit(1)
+
+    # 그룹핑 직후, 엔티티를 하나도 컴파일하기 전에 manifest 를 쓴다. 중간에 멈춘 위키도
+    # "무엇이 빠졌는지"를 알 수 있어야 한다. --dry-run 은 아무것도 쓰지 않는다. (#27 A 기준 점검)
+    if not args.dry_run:
+        manifest = build_manifest(entities, {
+            "documents_path": CORPUS_DOCS.as_posix(),
+            "documents_sha256": CORPUS_DOCS_SHA256,
+            "snapshot_id": CORPUS_SNAPSHOT_ID,
+        }, MODEL_PROVIDER, MODEL_NAME)
+        # 아래 루프가 --force 없이 건너뛸 페이지 (같은 조건: 있고 비어 있지 않음)
+        existing = [p for p in manifest["pages"]
+                    if (WIKI_ROOT / p).exists() and (WIKI_ROOT / p).stat().st_size > 0]
+        reason = manifest_conflict(read_manifest(), manifest, existing)
+        # 전체 --force 만 모든 페이지를 새로 만든다. --only/--limit 는 일부만 만든다.
+        if reason and (not args.force or args.only or args.limit is not None):
+            raise SystemExit(
+                f"[오류] {WIKI_ROOT} 에 이미 있는 페이지 {len(existing)}개가 이번 입력·모델로 "
+                f"만든 것인지 확인할 수 없습니다 — {reason}.\n"
+                "       이대로 돌리면 그 페이지를 건너뛰고, 다른 입력으로 만든 페이지에 이번 "
+                "manifest 가 붙습니다.\n"
+                "       --only/--limit 없이 --force 로 전체를 다시 만들거나, 다른 --wiki-root 를 쓰세요."
+            )
+        if reason:
+            # 여기까지 왔으면 --only/--limit 없는 전체 --force 다. 다시 만들 페이지와 manifest 에
+            # 없는 페이지를 먼저 지운다. 지우지 않으면 컴파일에 실패한 엔티티의 옛 페이지가 남고,
+            # 새 manifest 가 그 페이지를 이번 입력·모델로 만든 것처럼 보증한다. 먼저 지우고
+            # manifest 를 쓰므로, 중간에 멈춰도 페이지가 빠진 상태가 되어 run_batch 가 막는다.
+            # (#27 A 기준 점검)
+            keep = set(manifest["pages"])
+            stale = [p.relative_to(WIKI_ROOT).as_posix() for p in WIKI_ROOT.rglob("*.md")
+                     if p.stem.lower() != "readme"
+                     and (p.relative_to(WIKI_ROOT).as_posix() in existing
+                          or p.relative_to(WIKI_ROOT).as_posix() not in keep)]
+            for rel in stale:
+                (WIKI_ROOT / rel).unlink()
+            print(f"[정리] 전체 재구축 - 이전 페이지 {len(stale)}개를 지우고 다시 만든다")
+        write_manifest(manifest)
+        print(f"[manifest] {manifest_path()} — 페이지 {len(manifest['pages'])}개 / "
+              f"입력 sha256 {CORPUS_DOCS_SHA256[:12]}... / {MODEL_PROVIDER}/{MODEL_NAME}")
 
     # 보기 좋게: 종류별로 정렬해서 출력/컴파일
     keys = sorted(entities, key=lambda k: (entities[k].kind, entities[k].name))
