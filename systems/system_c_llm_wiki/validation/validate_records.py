@@ -11,9 +11,16 @@ System A / B / C 어느 결과 폴더에나 돌아간다.
   2. (qid, model, run) 중복 / 기대 격자 대비 누락
   3. 토큰 4열 == 호출기록(invocations.jsonl)의 턴별 합  — 불일치는 실패
   4. usage_raw 원본과 4열 대조 (provider별 필드 위치 확인)  — System C
-  5. 출력 토큰 0 / 빈 답변
+  5. 출력 토큰 0 / 빈 답변 / 생성 시간(latency_ms.generate)      — 생성 시간은 System C
   6. 추론 강도(reasoning_applied)가 전 행에 적용됐는지          — System C
   7. 기권 문구 일치, status 분포
+
+행 판정은 System A 규칙을 따른다 (#27 A 기준 점검). A 의 run_eval._is_retryable 처럼
+error 가 있고 answer 가 빈 행만 재실행 대상이고, 답변이 있는 행은 채점 대상이다.
+  [실패] error + 빈 answer(A 크래시·GenerationError), status error, status max_turns(구버전),
+         오류 없이 빈 answer, 출력 토큰 0, System C 행의 generate 0
+  [참고] error + answer(A/B dangling_citations), no_submit(도구 없이 텍스트로 답한 행),
+         읽지 않은 페이지 인용, 답변 속 도구 호출 표기
 
 사용:
     python3 systems/system_c_llm_wiki/validation/validate_records.py \
@@ -41,8 +48,13 @@ EXTRA_FIELDS = {
     "reasoning_effort", "reasoning_config", "reasoning_applied", "reasoning_note",
     "attempt_id",
     "provider", "started_at", "finished_at", "page_evidence",
+    # run_batch 가 쓰는 C 전용 필드. partial_answer 는 오류 행의 중간 텍스트다. (#27 A 기준 점검)
+    "abstained", "wiki_pages_evidence", "partial_answer",
 }
 TOKEN_COLS = ("uncached_input", "cache_read", "cache_creation", "output")
+# 답변에 섞여 나온 도구 호출 표기. 9/28 sonnet Q-codedoc-004 는 submit_answer 인자 안에
+# '</answer>\n<parameter name="cited_pages">…' 를 써서 cited_pages 가 비었다. (#27 A 기준 점검)
+TOOL_MARKUP = ("<parameter", "</answer>", "<invoke", "</invoke>")
 
 
 class Report:
@@ -60,8 +72,13 @@ class Report:
         if details and len(details) > show:
             print(f"    … 외 {len(details) - show}건")
 
-    def note(self, msg: str) -> None:
+    def note(self, msg: str, details: list | None = None, show: int = 10) -> None:
+        # 실패에서 참고로 내린 항목도 어느 행인지는 보여준다. (#27 A 기준 점검)
         print(f"[참고] {msg}")
+        for d in (details or [])[:show]:
+            print(f"    {d}")
+        if details and len(details) > show:
+            print(f"    … 외 {len(details) - show}건")
 
     def skip(self, msg: str) -> None:
         print(f"[건너뜀] {msg}")
@@ -86,6 +103,25 @@ def _key(rec: dict) -> tuple:
 
 def _tok(rec: dict, col: str) -> int:
     return (rec.get("tokens") or {}).get(col) or 0
+
+
+def _is_retryable(rec: dict) -> bool:
+    """A 의 run_eval._is_retryable 과 같은 기준. (#27 A 기준 점검)
+
+    크래시 행(답변 없음 + error)만 재실행 대상이다. dangling_citations 처럼 답변이 있는
+    오류 행은 정상 생성이라 채점한다. 예전에는 error 가 있으면 전부 실패로 두어 A/B 의
+    dangling 행(9/28 A 2건, B 1건)까지 재실행을 요구했다.
+    """
+    return bool(rec.get("error")) and not rec.get("answer")
+
+
+def _err_detail(rec: dict) -> str:
+    s = f"{_key(rec)}: {str(rec.get('error') or rec.get('status'))[:80]}"
+    if rec.get("answer"):
+        # 구버전 run_batch 는 Anthropic 경로의 중간 서술을 오류 행 answer 에 남겼다. A 규칙
+        # (error + answer = 정상 줄)으로 읽으면 서술이 답변으로 채점된다. (#27 A 기준 점검)
+        s += f"  [answer {len(rec['answer'])}자 남음 - 새 run_batch 는 비우고 partial_answer 에 둔다]"
+    return s
 
 
 def _cols_from_raw(raw: dict | None) -> dict | None:
@@ -267,14 +303,28 @@ def main() -> int:
     # ---------- 3·4. 토큰 ----------
     # 오류 행은 토큰·빈답·추론 판정에서 한 번만 센다. 여러 항목에서 중복으로
     # 실패로 잡히면 무엇이 문제인지 흐려진다. (#23 리뷰)
-    err_rows = [r for r in recs if r.get("error") or r.get("status") == "error"]
-    err_keys = {_key(r) for r in err_rows}
+    # 재실행 대상은 A 기준이다: error 가 있고 answer 가 빈 행(_is_retryable). System C 의
+    # status error 는 새 run_batch 에서 answer 가 늘 비어 있으므로 같은 행이다. (#27 A 기준 점검)
+    err_rows = [r for r in recs if _is_retryable(r) or r.get("status") == "error"]
+    # max_turns 는 새 run_batch 가 오류 행(answer '')으로 바꾼다. 남아 있으면 구버전 결과다.
+    turn_rows = [r for r in recs if r.get("status") == "max_turns" and not _is_retryable(r)]
+    err_keys = {_key(r) for r in err_rows + turn_rows}
     good = [r for r in recs if _key(r) not in err_keys]
     if err_rows:
-        rep.bad(f"오류 행 {len(err_rows)}건 - 재실행 필요",
-                [f"{_key(r)}: {str(r.get('error'))[:80]}" for r in err_rows])
+        rep.bad(f"오류 행 {len(err_rows)}건 - 재실행 필요 (error 가 있고 answer 가 빈 행, "
+                f"System C 는 status error 포함)", [_err_detail(r) for r in err_rows])
     else:
         rep.ok("오류 행 없음")
+    if turn_rows:
+        rep.bad(f"max_turns 로 끝난 행 {len(turn_rows)}건 - 구버전 결과. 새 run_batch 는 "
+                f"오류 행(answer '')으로 남겨 재실행한다", [f"{_key(r)}" for r in turn_rows])
+    # error 가 있지만 답변이 있는 행. A/B 의 dangling_citations 행이 여기 든다. A 는 이 행을
+    # 다시 돌리지 않고 채점한다(results/raw/test_low_0928/system_a/README.md '채점할 때 참고').
+    answered_err = [r for r in good if r.get("error")]
+    if answered_err:
+        rep.note(f"error 가 있지만 답변이 있는 행 {len(answered_err)}건 - 채점 대상 정상 줄, "
+                 f"재실행하지 않는다 (A 의 dangling_citations 행과 같다)",
+                 [f"{_key(r)}: {str(r.get('error'))[:80]}" for r in answered_err])
 
     inv_files = sorted((base / "runs").glob("*/invocations.jsonl"))
     if inv_files:
@@ -359,7 +409,7 @@ def main() -> int:
     else:
         rep.skip("invocations.jsonl 이 없어 토큰 대조 불가 (System A/B 는 해당 없음)")
 
-    # ---------- 5. 빈 응답 / 제출 / 인용 ----------
+    # ---------- 5. 빈 응답 / 생성 시간 / 제출 / 인용 ----------
     zero_out = [f"{_key(r)}" for r in good if _tok(r, "output") == 0]
     empty_ans = [f"{_key(r)}" for r in good if not (r.get("answer") or "").strip()]
     if zero_out:
@@ -367,13 +417,34 @@ def main() -> int:
     else:
         rep.ok("출력 토큰 0인 행 없음")
     if empty_ans:
+        # A 는 빈 답변을 GenerationError 로 오류 행(answer '')으로 남겨 재실행한다. 오류 없이
+        # 빈 답이 남았다면 기록기가 이 규칙을 지키지 않은 것이다. (#27 A 기준 점검)
         rep.bad(f"answer 가 빈 행 {len(empty_ans)}건 (오류 행 제외)", empty_ans)
+
+    # System C 행은 LLM 호출 시간(턴별 api_ms 합)을 latency_ms.generate 에 남긴다. A 는 s6 생성
+    # 시간을 같은 칸에 남기므로, 0이면 두 시스템의 생성 시간을 비교할 수 없다. A/B 행에는
+    # 적용하지 않는다. (#27 A 기준 점검)
+    if any(r.get("system") == "wiki" for r in recs):
+        wiki_rows = [r for r in good if r.get("system") == "wiki"
+                     and r.get("status") in ("ok", "no_submit")]
+        no_gen = [f"{_key(r)}" for r in wiki_rows
+                  if not (r.get("latency_ms") or {}).get("generate")]
+        if no_gen:
+            rep.bad(f"latency_ms.generate 가 0이거나 없는 System C 행 {len(no_gen)}건 "
+                    f"(status ok/no_submit)", no_gen)
+        else:
+            rep.ok(f"System C 행 latency_ms.generate 기록됨 ({len(wiki_rows)}행)")
+    else:
+        rep.skip("latency_ms.generate 검사는 System C 전용 (System A/B 는 해당 없음)")
 
     no_sub = [f"{_key(r)}" for r in good if r.get("status") == "no_submit"]
     if any("status" in r for r in recs):
         if no_sub:
-            # submit_answer 없이 끝난 행은 근거 페이지가 없다. 통과로 두면 안 된다. (#23 리뷰)
-            rep.bad(f"submit_answer 없이 끝난 행 {len(no_sub)}건", no_sub)
+            # submit_answer 없이 텍스트로 끝난 행은 인용 없는 답변으로 채점한다. A 도 [chunk_id]
+            # 없는 평문 답변을 그대로 채점하고 다시 돌리지 않는다. 실패로 두면 이 행만 골라
+            # 다시 돌리게 되어 C 에만 추가 시도가 생긴다. (#27 A 기준 점검)
+            rep.note(f"submit_answer 없이 텍스트로 끝난 행 {len(no_sub)}건 - "
+                     f"인용 없는 답변으로 채점, 재실행하지 않는다", no_sub)
         else:
             rep.ok("전 행이 submit_answer 로 제출됨")
 
@@ -387,9 +458,27 @@ def main() -> int:
             if extra:
                 bad_cite.append(f"{_key(r)}: {sorted(extra)}")
         if bad_cite:
-            rep.bad(f"read_page 로 읽지 않은 페이지를 인용한 행 {len(bad_cite)}건", bad_cite)
+            # A/B 의 dangling_citations 와 같은 성격이다. A 는 답변을 그대로 두고 표시만 하며
+            # 다시 돌리지 않는다. 근거성은 cited_pages 가 아니라 retrieved.wiki_pages(실제로
+            # 읽은 페이지) 기준으로 볼 것. (#27 A 기준 점검)
+            rep.note(f"read_page 로 읽지 않은 페이지를 인용한 행 {len(bad_cite)}건 - "
+                     f"채점 대상 정상 줄, 재실행하지 않는다 (A/B 의 dangling_citations 에 해당)",
+                     bad_cite)
         else:
             rep.ok("인용 페이지가 모두 열람 기록 안에 있음")
+
+    # 답변 속 도구 호출 표기. 모델이 만든 답이므로 재실행하지 않고 표시만 한다. 채점 전에
+    # 걷어낼지는 채점 담당이 A/B 의 태그 처리와 같은 규칙으로 정한다. (#27 A 기준 점검)
+    leaked = []
+    for r in good:
+        hits = [m for m in TOOL_MARKUP if m in (r.get("answer") or "")]
+        if hits:
+            leaked.append(f"{_key(r)}: {hits}")
+    if leaked:
+        rep.note(f"답변에 도구 호출 표기가 섞인 행 {len(leaked)}건 - 채점 대상, 재실행하지 않는다",
+                 leaked)
+    else:
+        rep.ok("답변에 도구 호출 표기 없음")
 
     # ---------- 6. 추론 강도 ----------
     if any("reasoning_applied" in r for r in recs):
