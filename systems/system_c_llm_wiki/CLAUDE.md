@@ -29,6 +29,7 @@
 - **범위**: `corpus/metadata/scope.json` 이 정의하는 4 Device Type / 23 Cluster. 코드에서 하드코딩으로 대체하지 말고 런타임에 읽는다.
 - **생성 모델**: System A/B/C가 반드시 동일 모델을 사용한다. 현재 `gpt-5.6-luna` (Azure OpenAI 게이트웨이).
 - **질의 방식**: 에이전트 페이지 탐색형 (수행계획 발표 시 확정). 정적 전체주입 아님.
+- **프롬프트**: System A 의 `s6_generate.SYSTEM_PROMPT` **영어 원문**을 쓴다(9/30 팀 결정). 번역본을 쓰면 프롬프트 차이가 시스템 간 변수로 남는다. C 고유 차이는 규칙 3(인용 대상이 `[chunk_id]` → `cited_pages`)과 규칙 5(제출 경로)뿐이며, `tests/test_prompt_parity.py` 가 공통 문장 일치를 검사한다. 기권 문구는 규칙 1에만 한 번 나온다.
 
 ## 아키텍처
 

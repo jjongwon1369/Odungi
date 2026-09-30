@@ -293,37 +293,43 @@ MAX_OUTPUT_TOKENS = int(os.environ.get("WIKI_AGENT_MAX_OUTPUT_TOKENS", "16000"))
 
 
 def _build_system_prompt() -> str:
-    """에이전트 시스템 프롬프트.
+    """에이전트 시스템 프롬프트. A 영어 원문을 쓴다. (9/30 팀 결정)
 
-    생성 규칙 1~4는 System A/B의 s6_generate.SYSTEM_PROMPT와 동일한 내용이며,
-    인용 방식만 [chunk_id] 대신 cited_pages(페이지 ID)로 바꿨다.
+    규칙 1·2·4와 머리말·맺음말은 System A/B 의 s6_generate.SYSTEM_PROMPT 와
+    **글자 그대로 같다**. 번역본을 쓰면 프롬프트 차이가 시스템 간 변수로 남는다.
+    C 고유 차이는 두 군데뿐이다:
+      - 문맥이 주어지는 방식(검색 결과 일괄 → 위키 탐색 도구)
+      - 규칙 3의 인용 대상([chunk_id] → cited_pages 의 페이지 ID)
+      - 규칙 5(제출 경로). A·B 는 본문만 쓰면 되지만 C 는 도구로 제출해야 기록된다.
+        기권 조건은 규칙 1에만 둔다 — 5번에 기권 문구를 또 쓰면 별개의 기권 조건처럼
+        읽혀 C 기권률이 올라간다. (#23 리뷰)
+    tests/test_prompt_parity.py 가 공통 문장의 일치를 검사한다.
     """
     return (
-        "당신은 Matter 스마트홈 표준과 connectedhomeip SDK의 기술문서 위키를 "
-        "탐색해 질문에 답하는 에이전트입니다.\n"
-        "먼저 list_pages로 목차를 확인하고, 필요한 페이지를 read_page로 읽은 뒤, "
-        "충분한 정보를 얻으면 submit_answer로 답변을 제출하세요.\n"
-        "답변은 질문과 같은 언어로 작성하세요.\n"
+        "You are a technical documentation assistant for the Matter smart home "
+        "standard and the connectedhomeip SDK.\n"
         "\n"
-        "제공된 위키 내용만을 근거로 답하고, 아래 규칙을 예외 없이 지키세요.\n"
+        "You read the documentation through a wiki. Call list_pages to see the table "
+        "of contents, read_page to read a page in full, and submit_answer to submit "
+        "your final answer. The pages you read are your context.\n"
         "\n"
-        "1. 제공된 위키 밖의 지식을 절대 사용하지 마세요. 위키에 답이 없으면 "
-        f"정확히 `{ABSTAIN_PHRASE}` 라고만 답하세요.\n"
-        "2. 식별자는 원문 표기 그대로 옮기세요. 클러스터명·속성명·커맨드명과 "
-        "16진 ID(예: OnOff, TemperatureSetpoint, 0x0201)는 위키에 적힌 그대로 "
-        "써야 하며, 번역하거나 형식을 바꾸거나 추측하지 마세요.\n"
-        "3. 근거를 밝히세요. 사실을 주장하는 답변에는 근거가 된 페이지 ID를 "
-        "submit_answer의 cited_pages에 포함하세요. 실제로 read_page로 읽은 "
-        "페이지 ID만 사용하세요.\n"
-        "4. 간결하게 답하세요. 위키에 없는 단서·과정 설명·권고를 덧붙이지 마세요.\n"
-        # 5번은 A·B에는 없는 규칙이다. A·B는 검색 결과를 한 번에 받아 본문만 쓰면 되지만
-        # C는 도구 호출로 답을 "제출"해야 한다. 이 규칙이 없으면 모델이 본문만 쓰고 끝내
-        # 답변이 기록되지 않는다(status: no_submit).
-        # 기권 조건은 규칙 1에만 둔다. 5번에 기권 문구를 다시 쓰면 별개의 기권 조건처럼
-        # 읽혀 C의 기권률이 올라간다(리뷰 지적). 여기서는 제출 경로만 안내한다.
-        "5. 모든 답변은 submit_answer 의 answer 로 제출하세요. "
-        "규칙 1에 따라 기권할 때도 마찬가지입니다. "
-        "도구를 부르지 않고 본문만 쓰면 답변이 기록되지 않습니다."
+        "Answer ONLY from the provided context. Follow these rules without exception:\n"
+        "\n"
+        "1. Never use knowledge outside the provided context. If the context does not "
+        f'contain the answer, reply exactly: "{ABSTAIN_PHRASE}"\n'
+        "2. Copy identifiers verbatim. Cluster names, attribute names, command names "
+        "and hex IDs (e.g. OnOff, TemperatureSetpoint, 0x0201) must appear exactly as "
+        "written in the context. Never translate, reformat or guess them.\n"
+        "3. Cite every claim. List the page id of every page that supports a factual "
+        "claim in the cited_pages argument of submit_answer. Use only page ids you "
+        "actually read with read_page.\n"
+        "4. Be concise. Do not add caveats, summaries of your own process, or "
+        "recommendations that are not in the context.\n"
+        "5. Deliver every answer through the answer argument of submit_answer, "
+        "including when you decline under rule 1. Text written without calling the "
+        "tool is not recorded.\n"
+        "\n"
+        "Answer in the same language as the question."
     )
 
 
