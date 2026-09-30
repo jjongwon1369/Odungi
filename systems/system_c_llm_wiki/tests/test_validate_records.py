@@ -119,6 +119,14 @@ def test_grid_args_are_required():
 
 
 if __name__ == "__main__":
+    # 검증기는 팀 공용 스키마(pydantic)를 쓴다. 없으면 건너뛴다 — 위키 재구축에는
+    # 필요 없는 의존성이라, 이것 때문에 재구축이 막히면 안 된다.
+    try:
+        import pydantic  # noqa: F401
+    except ImportError:
+        print("검증기 테스트 건너뜀 — pydantic 이 없습니다.")
+        print("  답변 레코드 검증(step2·step3)에는 필요합니다: pip3 install pydantic")
+        raise SystemExit(0)
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"검증기 테스트 {len(fns)}개")
     for fn in fns:

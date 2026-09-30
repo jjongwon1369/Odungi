@@ -386,23 +386,74 @@ ABSTAIN_TEXT = ABSTAIN_PHRASE
 # (rag_proto.schema.extract_identifiers 와 동일한 동작 — pydantic 의존을 피하려고 여기서 재현한다.)
 _ic = os.environ.get("IDENTIFIER_CONFIG", "").strip()
 IDENTIFIER_CONFIG = Path(_ic) if _ic else IDENTIFIER_CONFIG_DEFAULT
+def _parse_identifiers_block(text: str) -> tuple:
+    """pyyaml 없이 `identifiers:` 블록만 읽는다.
+
+    C 만 돌리는 환경에는 A 의 의존성(pyyaml)이 없을 수 있다. 그렇다고 폴백 규칙을
+    쓰면 A 와 어긋나도 드러나지 않으므로, A 의 설정 파일 자체를 최소 파서로 읽는다.
+    대상은 다음 모양뿐이다:
+
+        identifiers:
+          patterns:
+            - '...'
+          stopwords:
+            - "..."
+    """
+    pats: list = []
+    stops: list = []
+    section = None       # "patterns" | "stopwords"
+    in_block = False
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        stripped = line.strip()
+        if indent == 0:
+            in_block = stripped.startswith("identifiers:")
+            section = None
+            continue
+        if not in_block:
+            continue
+        if stripped.startswith("patterns:"):
+            section = "patterns"
+            continue
+        if stripped.startswith("stopwords:"):
+            section = "stopwords"
+            continue
+        if stripped.startswith("- ") and section:
+            item = stripped[2:].split("#", 1)[0].strip()
+            if len(item) >= 2 and item[0] == item[-1] and item[0] in "'\"":
+                item = item[1:-1]
+            (pats if section == "patterns" else stops).append(item)
+    return pats, stops
+
+
 def _load_identifier_rules() -> tuple:
-    """System A 설정에서 patterns/stopwords 를 읽는다. 못 읽으면 폴백을 쓰고 경고한다."""
+    """System A 설정에서 patterns/stopwords 를 읽는다. 못 읽으면 멈춘다. (#23 리뷰)"""
+    try:
+        text = IDENTIFIER_CONFIG.read_text(encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        raise SystemExit(
+            f"[오류] {IDENTIFIER_CONFIG} 를 읽지 못했습니다 ({exc}).\n"
+            "       A 와 같은 규칙으로 식별자를 세야 하므로 폴백으로 넘기지 않습니다."
+        )
+    pats = stops = None
     try:
         import yaml  # type: ignore
-        cfg = yaml.safe_load(IDENTIFIER_CONFIG.read_text(encoding="utf-8")) or {}
+        cfg = yaml.safe_load(text) or {}
         ident = cfg.get("identifiers") or {}
         pats = list(ident.get("patterns") or [])
         stops = list(ident.get("stopwords") or [])
-        if pats:
-            return pats, stops
-        raise ValueError("identifiers.patterns 가 비어 있음")
+    except ImportError:
+        pats, stops = _parse_identifiers_block(text)   # pyyaml 없는 환경
     except Exception as exc:  # noqa: BLE001
-        # 폴백을 조용히 쓰면 A 의 규칙이 바뀌어도 드러나지 않고 어긋난다. (#23 리뷰)
+        raise SystemExit(f"[오류] {IDENTIFIER_CONFIG} 파싱 실패 ({exc}).")
+    if not pats:
         raise SystemExit(
-            f"[오류] {IDENTIFIER_CONFIG} 에서 식별자 규칙을 읽지 못했습니다 ({exc}).\n"
-            "       A 와 같은 규칙으로 식별자를 세야 하므로 폴백으로 넘기지 않습니다."
+            f"[오류] {IDENTIFIER_CONFIG} 의 identifiers.patterns 가 비어 있습니다."
         )
+    return pats, stops
 
 
 IDENTIFIER_PATTERNS, IDENTIFIER_STOPWORDS = _load_identifier_rules()

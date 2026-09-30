@@ -10,11 +10,30 @@ import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(REPO / "systems" / "system_a_rag" / "rag_proto" / "src"))
 sys.path.insert(0, str(REPO / "systems" / "system_c_llm_wiki" / "agent"))
 
-from rag_proto.s6_generate import SYSTEM_PROMPT as A_PROMPT  # noqa: E402
-from rag_proto.s6_generate import ABSTAIN_PHRASE as A_ABSTAIN  # noqa: E402
+A_SOURCE = REPO / "systems/system_a_rag/rag_proto/src/rag_proto/s6_generate.py"
+
+
+def _literal_from_source(path: Path, name: str) -> str:
+    """A 의 소스에서 문자열 상수를 꺼낸다.
+
+    모듈을 import 하지 않는다. s6_generate 는 pyyaml 등 A 쪽 의존성을 끌어오는데,
+    C 만 돌리는 환경에는 그게 없을 수 있다. 프롬프트 대조에 A 의 런타임은 필요 없다.
+    """
+    import ast
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id == name:
+                    return ast.literal_eval(node.value)
+    raise AssertionError(f"{path.name} 에서 {name} 을 찾지 못했다")
+
+
+A_PROMPT = _literal_from_source(A_SOURCE, "SYSTEM_PROMPT")
+A_ABSTAIN = _literal_from_source(A_SOURCE, "ABSTAIN_PHRASE")
+
 from run_agent import _build_system_prompt, ABSTAIN_PHRASE as C_ABSTAIN  # noqa: E402
 
 C_PROMPT = _build_system_prompt()
@@ -78,6 +97,18 @@ def test_c_only_differences_are_rule3_and_rule5():
     assert "cited_pages" in c_rules["3"] and "chunk_id" in a_rules["3"]
     assert "submit_answer" in c_rules["5"]
     print("  ✓ 규칙 1·2·4 동일 / 3은 cited_pages / 5는 C 고유(제출 경로)")
+
+
+def test_identifier_rules_parse_without_pyyaml():
+    """pyyaml 이 없는 환경에서도 A 의 식별자 규칙을 같은 값으로 읽는가."""
+    sys.path.insert(0, str(REPO / "systems" / "system_c_llm_wiki" / "agent"))
+    import run_batch as rb
+    text = rb.IDENTIFIER_CONFIG.read_text(encoding="utf-8")
+    pats, stops = rb._parse_identifiers_block(text)
+    assert list(pats) == list(rb.IDENTIFIER_PATTERNS), (pats, rb.IDENTIFIER_PATTERNS)
+    assert list(stops) == list(rb.IDENTIFIER_STOPWORDS), (stops, rb.IDENTIFIER_STOPWORDS)
+    assert pats, "식별자 패턴이 비었다"
+    print(f"  ✓ pyyaml 없이도 같은 식별자 규칙 ({len(pats)}패턴 / {len(stops)}스톱워드)")
 
 
 if __name__ == "__main__":
