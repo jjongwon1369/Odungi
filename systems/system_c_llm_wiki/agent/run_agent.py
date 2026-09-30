@@ -288,6 +288,8 @@ def _tools_anthropic():
 # 근거가 없을 때 내놓아야 하는 정확한 문구.
 # System A/B(s6_generate.ABSTAIN_PHRASE)와 글자 그대로 동일해야 한다. 마침표 없음.
 ABSTAIN_PHRASE = "제공된 문서에서 확인되지 않음"
+# 출력 상한. config_hash 에 들어가므로 바꾸면 실행 조건이 달라진 것으로 기록된다.
+MAX_OUTPUT_TOKENS = int(os.environ.get("WIKI_AGENT_MAX_OUTPUT_TOKENS", "16000"))
 
 
 def _build_system_prompt() -> str:
@@ -316,10 +318,11 @@ def _build_system_prompt() -> str:
         "4. 간결하게 답하세요. 위키에 없는 단서·과정 설명·권고를 덧붙이지 마세요.\n"
         # 5번은 A·B에는 없는 규칙이다. A·B는 검색 결과를 한 번에 받아 본문만 쓰면 되지만
         # C는 도구 호출로 답을 "제출"해야 한다. 이 규칙이 없으면 모델이 본문만 쓰고 끝내
-        # 답변이 기록되지 않는다(status: no_submit). 내용 조건이 아니라 제출 경로 안내라
-        # A·B와의 비교 조건을 바꾸지 않는다. (#23 2절, 팀 결정)
-        "5. 어떤 경우에도 submit_answer 로 끝내세요. 답을 찾지 못했더라도 "
-        f"answer 에 `{ABSTAIN_PHRASE}` 를 넣어 submit_answer 를 호출하세요. "
+        # 답변이 기록되지 않는다(status: no_submit).
+        # 기권 조건은 규칙 1에만 둔다. 5번에 기권 문구를 다시 쓰면 별개의 기권 조건처럼
+        # 읽혀 C의 기권률이 올라간다(리뷰 지적). 여기서는 제출 경로만 안내한다.
+        "5. 모든 답변은 submit_answer 의 answer 로 제출하세요. "
+        "규칙 1에 따라 기권할 때도 마찬가지입니다. "
         "도구를 부르지 않고 본문만 쓰면 답변이 기록되지 않습니다."
     )
 
@@ -381,6 +384,37 @@ def _tokens_anthropic(usage) -> dict:
         "cache_write": cw,
         "output_tokens": getattr(usage, "output_tokens", None),
     }
+
+
+# 응답이 온전하지 않은 종료 사유. 이 상태로 끝난 턴의 본문은 답으로 쓰지 않는다.
+# 도구 호출이 있었던 턴은 정상이다(대화가 계속되는 중). (#23 리뷰)
+HARD_STOP_REASONS = {
+    "length",              # Chat Completions: 출력 상한
+    "content_filter",      # Chat Completions: 차단
+    "max_output_tokens",   # Responses: incomplete_details.reason
+    "incomplete",          # Responses: status
+    "refusal",             # 거절
+    "max_tokens",          # Anthropic: 출력 상한
+}
+
+
+class AgentRunError(RuntimeError):
+    """실행을 중단시키는 오류. 그때까지의 과금·턴 기록을 함께 들고 올라간다.
+
+    A 의 GenerationError 와 같은 역할. 예외만 던지면 앞 턴의 과금 토큰과
+    invocations 줄이 사라진다. (#23 리뷰)
+    """
+
+    def __init__(self, message: str, partial: dict | None = None):
+        super().__init__(message)
+        self.partial = partial or {}
+
+
+def _hard_stop(finish_reason, had_tool_calls: bool):
+    """온전하지 않은 종료면 그 사유를 돌려준다. 아니면 None."""
+    if had_tool_calls:
+        return None
+    return finish_reason if finish_reason in HARD_STOP_REASONS else None
 
 
 def _turn_meta(response) -> dict:
@@ -467,7 +501,7 @@ def _execute_tool(
 def _make_result(
     query, answer, retrieved_pages, cited_pages, turn_details, total_usage,
     page_evidence, reasoning_applied, reasoning_note, reasoning_config_sent,
-    status, failed_attempts,
+    status, failed_attempts, error=None,
 ) -> dict:
     return {
         "query": query,
@@ -482,6 +516,7 @@ def _make_result(
         "reasoning_note": reasoning_note,
         "reasoning_config_sent": reasoning_config_sent,
         "status": status,
+        "error": error,
         "failed_attempts": failed_attempts,
     }
 
@@ -515,6 +550,7 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
     all_failed: list = []
     total_usage = {"prompt_tokens": None, "cache_read": None, "cache_write": None, "output_tokens": None}
     status = "ok"
+    stop_error = None   # 잘림·거절로 끊긴 경우의 사유 (#23 리뷰)
     submitted = False   # submit_answer로 끝났는가 (#23 3절)
 
     for turn in range(1, max_turns + 1):
@@ -526,17 +562,30 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
             "model": model_name,
             "input": input_items,
             "tools": tools,
-            "max_output_tokens": 16000,
+            "max_output_tokens": MAX_OUTPUT_TOKENS,
         }
         req_with_r = {**req, **active_reasoning} if active_reasoning else req
 
         # 400(파라미터 거부) 시 자동 재시도하지 않는다.
         # 추론 강도를 조용히 빼고 다시 부르면 통제 실패가 정상 종료로 가려진다. (#23 2절)
-        response, failed = _call_api(
-            lambda r=req_with_r: client.responses.create(**r),
-            model_key, min_interval_s,
-        )
-        all_failed.extend(failed)
+        # 호출이 끝내 실패하면 예외를 그냥 올리지 않는다. 앞 턴의 과금 토큰과
+        # invocations 줄이 사라지기 때문이다. status=error 로 끊고 기록은 남긴다. (#23 리뷰)
+        try:
+            response, failed = _call_api(
+                lambda r=req_with_r: client.responses.create(**r),
+                model_key, min_interval_s,
+            )
+            all_failed.extend(failed)
+        except Exception as exc:  # noqa: BLE001
+            all_failed.append({
+                "attempt": f"turn{turn}-final",
+                "error": f"{exc.__class__.__name__}: {exc}"[:500],
+                "wait_s": 0,
+                "ts": time.time(),
+            })
+            status = "error"
+            stop_error = f"{exc.__class__.__name__}: {exc}"
+            break
 
         usage = _tokens_responses(getattr(response, "usage", None))
         total_usage = _sum_tokens(total_usage, usage)
@@ -583,14 +632,29 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
 
             elif item_type == "message":
                 for block in getattr(item, "content", []):
-                    if hasattr(block, "text"):
+                    if getattr(block, "type", "") == "refusal":
+                        # 거절은 답이 아니다. 잘림과 같은 기준으로 오류로 남긴다. (#23 리뷰)
+                        refused = getattr(block, "refusal", None) or "refusal"
+                        status = "error"
+                        stop_error = f"모델이 거절함: {str(refused)[:200]}"
+                        final_answer_found = True
+                    elif hasattr(block, "text"):
                         answer = block.text
                         final_answer_found = True
 
         if not turn_calls and not final_answer_found:
             final_answer_found = True
 
-        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **_turn_meta(response)})
+        meta = _turn_meta(response)
+        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
+
+        # 출력 상한·차단·거절로 끝난 턴은 답으로 쓰지 않는다. 같은 대화로 다시
+        # 부르지도 않는다(같은 사유로 또 잘리고 과금만 늘어난다). (#23 리뷰)
+        stop = _hard_stop(meta.get("finish_reason"), bool(turn_calls))
+        if stop:
+            status = "error"
+            stop_error = f"응답이 온전하지 않음 (finish_reason={stop})"
+            break
 
         if verbose:
             print(
@@ -607,15 +671,14 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
         status = "max_turns"
 
     if status == "ok" and not submitted:
-        # 도구를 쓰지 않고 본문만 반환하거나 stop_reason으로 끝난 경우.
-        # 근거 페이지가 없으므로 정상 제출과 구분한다. (#23 3절)
+        # 도구를 쓰지 않고 본문만 반환한 경우. 근거 페이지가 없으므로 구분한다. (#23 3절)
         status = "no_submit"
 
     return _make_result(
         query, answer, retrieved_pages, cited_pages, turn_details, total_usage,
         page_evidence, reasoning_applied, reasoning_note,
         (dict(reasoning_cfg) if reasoning_applied else None),
-        status, all_failed,
+        status, all_failed, stop_error,
     )
 
 
@@ -648,6 +711,7 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
     all_failed: list = []
     total_usage = {"prompt_tokens": None, "cache_read": None, "cache_write": None, "output_tokens": None}
     status = "ok"
+    stop_error = None   # 잘림·거절로 끊긴 경우의 사유 (#23 리뷰)
     submitted = False   # submit_answer로 끝났는가 (#23 3절)
 
     for turn in range(1, max_turns + 1):
@@ -660,17 +724,30 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
             "tools": tools,
             "tool_choice": "auto",
             # DeepSeek은 max_tokens만 읽고, A·B는 그 외 모델에 max_completion_tokens를 쓴다
-            model_cfg.get("max_tokens_param", "max_tokens"): 16000,
+            model_cfg.get("max_tokens_param", "max_tokens"): MAX_OUTPUT_TOKENS,
         }
         req = {**base_req, **active_reasoning} if active_reasoning else base_req
 
         # 400(파라미터 거부) 시 자동 재시도하지 않는다.
         # 추론 강도를 조용히 빼고 다시 부르면 통제 실패가 정상 종료로 가려진다. (#23 2절)
-        response, failed = _call_api(
-            lambda r=req: client.chat.completions.create(**r),
-            model_key, min_interval_s,
-        )
-        all_failed.extend(failed)
+        # 호출이 끝내 실패하면 예외를 그냥 올리지 않는다. 앞 턴의 과금 토큰과
+        # invocations 줄이 사라지기 때문이다. status=error 로 끊고 기록은 남긴다. (#23 리뷰)
+        try:
+            response, failed = _call_api(
+                lambda r=req: client.chat.completions.create(**r),
+                model_key, min_interval_s,
+            )
+            all_failed.extend(failed)
+        except Exception as exc:  # noqa: BLE001
+            all_failed.append({
+                "attempt": f"turn{turn}-final",
+                "error": f"{exc.__class__.__name__}: {exc}"[:500],
+                "wait_s": 0,
+                "ts": time.time(),
+            })
+            status = "error"
+            stop_error = f"{exc.__class__.__name__}: {exc}"
+            break
 
         msg = response.choices[0].message
         usage = _tokens_chat(getattr(response, "usage", None))
@@ -709,7 +786,16 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
             answer = msg.content or ""
             final_answer_found = True
 
-        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **_turn_meta(response)})
+        meta = _turn_meta(response)
+        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
+
+        # 출력 상한·차단·거절로 끝난 턴은 답으로 쓰지 않는다. 같은 대화로 다시
+        # 부르지도 않는다(같은 사유로 또 잘리고 과금만 늘어난다). (#23 리뷰)
+        stop = _hard_stop(meta.get("finish_reason"), bool(turn_calls))
+        if stop:
+            status = "error"
+            stop_error = f"응답이 온전하지 않음 (finish_reason={stop})"
+            break
 
         if verbose:
             print(
@@ -726,15 +812,14 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
         status = "max_turns"
 
     if status == "ok" and not submitted:
-        # 도구를 쓰지 않고 본문만 반환하거나 stop_reason으로 끝난 경우.
-        # 근거 페이지가 없으므로 정상 제출과 구분한다. (#23 3절)
+        # 도구를 쓰지 않고 본문만 반환한 경우. 근거 페이지가 없으므로 구분한다. (#23 3절)
         status = "no_submit"
 
     return _make_result(
         query, answer, retrieved_pages, cited_pages, turn_details, total_usage,
         page_evidence, reasoning_applied, reasoning_note,
         (dict(reasoning_cfg) if reasoning_applied else None),
-        status, all_failed,
+        status, all_failed, stop_error,
     )
 
 
@@ -764,6 +849,7 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
     all_failed: list = []
     total_usage = {"prompt_tokens": None, "cache_read": None, "cache_write": None, "output_tokens": None}
     status = "ok"
+    stop_error = None   # 잘림·거절로 끊긴 경우의 사유 (#23 리뷰)
     submitted = False   # submit_answer로 끝났는가 (#23 3절)
 
     for turn in range(1, max_turns + 1):
@@ -781,11 +867,24 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
 
         # 400(파라미터 거부) 시 자동 재시도하지 않는다.
         # 추론 강도를 조용히 빼고 다시 부르면 통제 실패가 정상 종료로 가려진다. (#23 2절)
-        response, failed = _call_api(
-            lambda r=req: client.messages.create(**r),
-            model_key, min_interval_s,
-        )
-        all_failed.extend(failed)
+        # 호출이 끝내 실패하면 예외를 그냥 올리지 않는다. 앞 턴의 과금 토큰과
+        # invocations 줄이 사라지기 때문이다. status=error 로 끊고 기록은 남긴다. (#23 리뷰)
+        try:
+            response, failed = _call_api(
+                lambda r=req: client.messages.create(**r),
+                model_key, min_interval_s,
+            )
+            all_failed.extend(failed)
+        except Exception as exc:  # noqa: BLE001
+            all_failed.append({
+                "attempt": f"turn{turn}-final",
+                "error": f"{exc.__class__.__name__}: {exc}"[:500],
+                "wait_s": 0,
+                "ts": time.time(),
+            })
+            status = "error"
+            stop_error = f"{exc.__class__.__name__}: {exc}"
+            break
 
         usage = _tokens_anthropic(getattr(response, "usage", None))
         total_usage = _sum_tokens(total_usage, usage)
@@ -836,7 +935,16 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
         elif response.stop_reason == "end_turn":
             final_answer_found = True
 
-        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **_turn_meta(response)})
+        meta = _turn_meta(response)
+        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
+
+        # 출력 상한·차단·거절로 끝난 턴은 답으로 쓰지 않는다. 같은 대화로 다시
+        # 부르지도 않는다(같은 사유로 또 잘리고 과금만 늘어난다). (#23 리뷰)
+        stop = _hard_stop(meta.get("finish_reason"), bool(turn_calls))
+        if stop:
+            status = "error"
+            stop_error = f"응답이 온전하지 않음 (finish_reason={stop})"
+            break
 
         if verbose:
             print(
@@ -853,15 +961,14 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
         status = "max_turns"
 
     if status == "ok" and not submitted:
-        # 도구를 쓰지 않고 본문만 반환하거나 stop_reason으로 끝난 경우.
-        # 근거 페이지가 없으므로 정상 제출과 구분한다. (#23 3절)
+        # 도구를 쓰지 않고 본문만 반환한 경우. 근거 페이지가 없으므로 구분한다. (#23 3절)
         status = "no_submit"
 
     return _make_result(
         query, answer, retrieved_pages, cited_pages, turn_details, total_usage,
         page_evidence, reasoning_applied, reasoning_note,
         (dict(reasoning_cfg) if reasoning_applied else None),
-        status, all_failed,
+        status, all_failed, stop_error,
     )
 
 

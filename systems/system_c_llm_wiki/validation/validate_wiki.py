@@ -16,11 +16,44 @@ validation/README.md 에 정의된 3가지를 검사한다:
 """
 
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
-CORPUS_RAW = Path("corpus/raw/connectedhomeip")
+# 식별자 보존율의 기준은 **컴파일러가 실제로 읽은 본문**이다.
+# corpus/raw 원본을 기준으로 삼으면, documents.jsonl 에서 정당하게 빠진 식별자까지
+# '누락'으로 세어 보존율이 실제보다 낮게 나온다. (#23 리뷰 5번)
+CORPUS_DOCS = Path(os.environ.get(
+    "CORPUS_DOCS", "corpus/tiers/c3/processed/documents.jsonl"))
+
+
+def load_corpus_texts() -> dict:
+    """documents.jsonl → {상대경로: 본문}. 위키 프론트매터의 source_paths 와 맞춘다."""
+    if not CORPUS_DOCS.exists():
+        raise SystemExit(
+            f"[오류] {CORPUS_DOCS} 가 없습니다.\n"
+            "       python3 scripts/corpus/build_tiers.py --tier c3 로 먼저 만드세요.\n"
+            "       (식별자 보존율은 컴파일러가 실제로 읽은 본문을 기준으로 셉니다.)"
+        )
+    prefix = "corpus/raw/connectedhomeip/"
+    out = {}
+    for line in CORPUS_DOCS.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        d = json.loads(line)
+        m = d.get("metadata", {})
+        rel = m.get("relative_path") or m.get("source_path") or m.get("raw_path")
+        if not rel:
+            continue
+        if rel.startswith(prefix):
+            rel = rel[len(prefix):]
+        out[rel] = d.get("text", "")
+    return out
+
+
+CORPUS_TEXTS = load_corpus_texts()
 import sys as _sys
 # 첫 번째 인자로 위키 경로를 주면 그 위키를 검증한다 (모델별 비교용)
 WIKI_ROOT = Path(_sys.argv[1]) if len(_sys.argv) > 1 else Path("systems/system_c_llm_wiki/wiki")
@@ -107,10 +140,9 @@ def main():
         # 원본 식별자 수집
         origin_ids = set()
         for rel in src_list:
-            f = CORPUS_RAW / rel
-            if f.exists():
-                origin_ids |= extract_identifiers(
-                    f.read_text(encoding="utf-8", errors="ignore"))
+            text = CORPUS_TEXTS.get(rel)
+            if text:
+                origin_ids |= extract_identifiers(text)
 
         if not origin_ids:
             rows.append((page.name, "OK", "원본 식별자 0개", "-"))

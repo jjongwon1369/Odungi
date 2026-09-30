@@ -31,3 +31,9 @@ __pycache__/
 **/.partial/
 run_c.log
 run_*.log
+
+# 로컬 실행 헬퍼 (커밋 안 함)
+step1_rebuild_wiki.sh
+step2_smoke.sh
+step3_full_run.sh
+check_results.sh

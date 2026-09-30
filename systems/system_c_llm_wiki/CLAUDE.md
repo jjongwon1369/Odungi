@@ -23,7 +23,8 @@
 - **SSOT**: connectedhomeip 커밋 `1ac132b5ecd42cb6c78772f2576ed6f7fc814183`. 모든 산출물이 이 해시를 프론트매터에 기록한다.
 - **코퍼스**: 위키 컴파일러의 입력은 **`corpus/tiers/c3/processed/documents.jsonl`** (팀 공용 정규화 산출물, 282개 문서 / 264 whole · 18 trimmed)이다.
   `corpus/raw/connectedhomeip` 원본을 컴파일러가 직접 읽지 않는다 — System A/B와 입력 범위를 맞추기 위한 조건이며 이슈 #23 1·4절의 핵심.
-  두 경로 모두 로컬에서 `scripts/corpus/extract_corpus.py` 로 생성하며 git에 커밋하지 않는다(라이선스 검토 미완).
+  티어 산출물은 로컬에서 `python3 scripts/corpus/build_tiers.py --tier c3` 로 만들며 git에 커밋하지 않는다(라이선스 검토 미완).
+  `CONNECTEDHOMEIP_PATH` 환경변수에 로컬 clone 경로가 필요하다.
 - **엔드포인트**: `models.json` 의 `base_url` 을 항상 명시적으로 넘긴다. 생략하면 SDK가 `OPENAI_BASE_URL`/`ANTHROPIC_BASE_URL` 을 읽어 환경변수가 이긴다(실측 확인). 인자를 빼는 건 고정이 아니다.
 - **범위**: `corpus/metadata/scope.json` 이 정의하는 4 Device Type / 23 Cluster. 코드에서 하드코딩으로 대체하지 말고 런타임에 읽는다.
 - **생성 모델**: System A/B/C가 반드시 동일 모델을 사용한다. 현재 `gpt-5.6-luna` (Azure OpenAI 게이트웨이).
@@ -65,7 +66,8 @@ systems/system_c_llm_wiki/
 ├── agent/models.json           모델별 provider / reasoning 설정
 └── wiki/                       컴파일 산출물 (손으로 수정하지 않는다)
     ├── base/  clusters/  device-types/  examples/  guides/  misc/
-    └── build_tokens.json       컴파일 토큰 4열 집계 (위키 구축 비용)
+    ├── build_calls.jsonl       API 호출 1건 = 1줄 (과금 원장, append-only)
+    └── build_tokens.json       위 원장에서 집계한 4열 (위키 구축 비용)
 ```
 
 ## 명령어
@@ -86,9 +88,16 @@ WIKI_COMPILER_PROVIDER=openai WIKI_COMPILER_MODEL=gpt-5.6-luna \
 # 위키 검증
 python3 systems/system_c_llm_wiki/validation/validate_wiki.py
 
-# 답변 레코드 검증 (팀 공용 AnswerRecord / 중복 / 토큰 4열 대조)
+# 답변 레코드 검증 (팀 공용 AnswerRecord / 중복·누락 / 4열 usage_raw 대조)
+# --models-json 과 --questions 는 필수다. 없으면 기대 격자를 파일 내용에서
+# 역산하게 되어 모델이 통째로 빠져도 통과한다.
 python3 systems/system_c_llm_wiki/validation/validate_records.py \
-    results/raw/<실험명>/system_c
+    results/raw/<실험명>/system_c \
+    --models-json systems/system_c_llm_wiki/agent/models.json \
+    --questions benchmark/questions_v1.jsonl --runs 1
+
+# 단위 테스트 (API 호출 없음)
+for t in systems/system_c_llm_wiki/tests/test_*.py; do python3 "$t"; done
 
 # 에이전트 질의 (verbose)
 python3 systems/system_c_llm_wiki/agent/run_agent.py \
@@ -106,15 +115,22 @@ python3 systems/system_c_llm_wiki/agent/run_agent.py \
 
 컴파일러 옵션: `--dry-run` / `--only <key>` / `--limit N` / `--force`(기생성 페이지도 재생성).
 기본 동작은 이미 만들어진 페이지 건너뛰기라, 중단 후 재실행하면 못 만든 것만 이어서 만든다.
-환경변수 `WIKI_COMPILER_TIMEOUT`(초, 기본 600)으로 요청 타임아웃 조절.
+환경변수: `WIKI_COMPILER_TIMEOUT`(초, 기본 600), `WIKI_COMPILER_MAX_TOKENS`(Anthropic 출력 상한, 기본 16000), `CORPUS_DOCS`(입력 경로).
+출력 상한·차단·거절(`finish_reason=length` / `content_filter` / Anthropic `max_tokens`·`refusal`)로 끝난 응답은 페이지로 저장하지 않고 실패로 남긴다. 호출은 이미 과금됐으므로 `build_calls.jsonl` 에는 기록된다.
 
-에이전트 환경변수: `WIKI_AGENT_MODEL`(기본 `WIKI_COMPILER_MODEL` → `gpt-5.6-luna`), `WIKI_AGENT_TIMEOUT`(초, 기본 120).
+에이전트 환경변수: `WIKI_AGENT_MODEL`, `WIKI_AGENT_TIMEOUT`(초, 기본 120), `WIKI_AGENT_MAX_OUTPUT_TOKENS`(기본 16000), `IDENTIFIER_CONFIG`.
+
+`run_batch.py` 옵션: `--run-label`(**필수**) / `--models` / `--wiki-root` / `--wiki-label` / `--run` / `--limit` / `--allow-corpus-mismatch` / `--allow-config-change`.
+첫 API 호출 전에 ① 위키 출처(`corpus_source`·`corpus_snapshot`)와 ② 선택한 전 모델의 이어하기 설정을 검사한다. 어긋나면 각각 exit 2 / exit 3 으로 **호출 전에** 멈춘다.
 
 ## 환경
 
 - API 키와 엔드포인트는 리포 루트 `.env.local` 에만 둔다. **절대 커밋하거나 대화/스크린샷에 노출하지 않는다.** (`.gitignore` 에 등록되어 있음)
-- 각 provider는 SDK 기본 엔드포인트로 붙는다. 코드에 `*_BASE_URL` 환경변수 의존이 없다 — 환경변수로 엔드포인트가 조용히 바뀌면 어느 엔드포인트로 실험했는지 재현할 수 없기 때문(이슈 #23 2절). 키만 `.env.local` 에 둔다: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`.
-- 이 게이트웨이는 `usage.prompt_tokens_details.cached_tokens`(cache_read), `cache_write_tokens`(cache_creation), `completion_tokens`(output)를 제공하므로 팀 공용 스키마의 **토큰 4열을 그대로 채울 수 있다**. 토큰은 절대 합산하지 말 것 — 베이스라인 논문이 합산 때문에 비용 가설 판정에 실패했다.
+- 엔드포인트는 `models.json` 의 `base_url` 을 **항상 명시적으로** 넘긴다. 없으면 실행을 막는다. 인자를 생략하면 SDK가 `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` 환경변수를 읽어 환경변수가 이긴다 — 즉 생략은 고정이 아니라 환경변수 지배 허용이다(실측 확인, 이슈 #23). 진단 스크립트(`probe_*.py`)도 같은 규칙이다. 폴백을 두면 다른 provider 키가 엉뚱한 호스트로 전송된다.
+- 키만 `.env.local` 에 둔다: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`.
+- 토큰 4열은 `uncached_input` / `cache_creation` / `cache_read` / `output` 이다. provider마다 원본 필드 위치가 다르다:
+  OpenAI `prompt_tokens` 는 캐시를 **포함**하므로 읽기·쓰기를 빼서 `uncached_input` 을 만든다. Anthropic `input_tokens` 는 캐시를 **제외**한 값이라 그대로 쓴다. 캐시 쓰기는 `prompt_tokens_details.cache_write_tokens` 에 있다(최상위에 없다).
+- 토큰은 절대 합산하지 말 것 — 베이스라인 논문이 합산 때문에 비용 가설 판정에 실패했다. `usage_raw` 원본을 함께 남겨 사후 재계산이 가능하게 한다.
 - 도구 호출(function calling) 지원 확인됨 → 에이전트 루프 구현 가능.
 
 ## 알려진 함정
@@ -142,6 +158,9 @@ python3 systems/system_c_llm_wiki/agent/run_agent.py \
 - [x] 이슈 #23 1~3절 반영 (입력을 `documents.jsonl` 로 교체 / 400 재시도 제거 / 레코드 필드 보강)
 - [ ] 위키 재구축 (`documents.jsonl` 입력, `--force`)
 - [x] 답변 레코드 검증기 — `validation/validate_records.py` (#23 5절 체크리스트)
+- [x] PR #27 리뷰 1차 반영 (엔드포인트 명시 / 캐시쓰기 위치 / 병합 업서트 / 코퍼스 c3 경로)
+- [x] PR #27 리뷰 2차 반영 (과금 원장 / 잘림·거절 처리 / config_hash 범위 / 검증기 4열 재계산 / 식별자 기준)
+- [ ] 위키 재구축 (`wiki-c3`, gpt-6-astra, `--force`)
 - [ ] 7종 재실행 및 결과 갱신
 
 페이지가 어떤 모델로 만들어졌는지는 프론트매터 `compiled_by` 로 확인한다:

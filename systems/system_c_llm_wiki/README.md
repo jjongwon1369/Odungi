@@ -14,7 +14,7 @@ System A / B(RAG 계열)와의 핵심 대조점이다.
 **입력은 `corpus/tiers/c3/processed/documents.jsonl` 이다.** `corpus/HANDOFF.md` 가 정한
 "RAG와 LLM Wiki가 함께 사용하는 282개 정규화 문서"이며, 원본 전문(`corpus/raw/`)을
 읽으면 System A / B 와 입력 범위가 달라진다. 구축에 쓴 토큰은 위키 루트의
-`build_tokens.json` 에 4열로 기록된다(질의 단계 토큰과 합산하지 않는다).
+호출 1건이 `build_calls.jsonl` 에 한 줄로 즉시 쌓이고(과금 원장), `build_tokens.json` 은 그 원장에서 `uncached_input`/`cache_creation`/`cache_read`/`output` 4열로 집계한다. 질의 단계 토큰과 합산하지 않는다.
 
 ### 2. 온라인 — 에이전트 페이지 탐색
 질의가 들어오면 LLM 에이전트가 3개 도구로 위키를 탐색한다 (수행계획서 8절).

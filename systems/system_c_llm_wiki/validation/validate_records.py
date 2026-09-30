@@ -39,6 +39,7 @@ EXTRA_FIELDS = {
     "wiki_corpus_source", "wiki_corpus_snapshot",
     "questions_sha256", "agent_commit", "trace_path", "failed_attempts",
     "reasoning_effort", "reasoning_config", "reasoning_applied", "reasoning_note",
+    "attempt_id",
     "provider", "started_at", "finished_at", "page_evidence",
 }
 TOKEN_COLS = ("uncached_input", "cache_read", "cache_creation", "output")
@@ -87,14 +88,54 @@ def _tok(rec: dict, col: str) -> int:
     return (rec.get("tokens") or {}).get(col) or 0
 
 
-def _raw_prompt_total(raw: dict | None) -> int | None:
-    """usage_raw 에서 '전체 입력 토큰'을 꺼낸다. provider마다 이름이 다르다."""
+def _cols_from_raw(raw: dict | None) -> dict | None:
+    """usage_raw 에서 4열을 모두 다시 계산한다. (#23 리뷰)
+
+    입력 합계만 비교하면 열 배분이 틀린 경우(#23의 캐시 쓰기 누락)와 output 오류를
+    잡지 못한다. 응답 형태마다 필드 위치가 다르므로 형태별로 나눈다.
+
+      Anthropic : uncached = input_tokens (캐시 제외), creation/read 는 전용 필드
+      Responses : input_tokens 는 캐시 포함 → 읽기·쓰기를 빼서 uncached 계산
+      Chat      : prompt_tokens 는 캐시 포함 → 같은 방식
+    """
     if not isinstance(raw, dict):
         return None
-    for k in ("prompt_tokens", "input_tokens"):
-        if isinstance(raw.get(k), int):
-            return raw[k]
-    return None
+
+    def g(*names):
+        for n in names:
+            v = raw.get(n)
+            if isinstance(v, int):
+                return v
+        return None
+
+    # Anthropic
+    if "input_tokens" in raw and ("cache_creation_input_tokens" in raw
+                                  or "cache_read_input_tokens" in raw):
+        return {
+            "uncached_input": g("input_tokens"),
+            "cache_creation": g("cache_creation_input_tokens") or 0,
+            "cache_read": g("cache_read_input_tokens") or 0,
+            "output": g("output_tokens"),
+        }
+
+    det = raw.get("input_tokens_details") or raw.get("prompt_tokens_details") or {}
+    if not isinstance(det, dict):
+        det = {}
+    cache_read = det.get("cached_tokens")
+    if not isinstance(cache_read, int):
+        cache_read = g("prompt_cache_hit_tokens", "cached_tokens") or 0
+    cache_write = det.get("cache_write_tokens")
+    if not isinstance(cache_write, int):
+        cache_write = g("cache_write_tokens") or 0
+    prompt = g("prompt_tokens", "input_tokens")
+    if prompt is None:
+        return None
+    return {
+        "uncached_input": max(0, prompt - cache_read - cache_write),
+        "cache_creation": cache_write,
+        "cache_read": cache_read,
+        "output": g("completion_tokens", "output_tokens"),
+    }
 
 
 def main() -> int:
@@ -102,10 +143,13 @@ def main() -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("base_dir", help="results/raw/<실험명>/system_x")
     ap.add_argument("--models-json", default=None,
-                    help="기대 모델 목록(models.json). 없으면 --models 나 파일 내용에서 추론")
+                    help="기대 모델 목록(models.json). --models 와 둘 중 하나는 필수")
     ap.add_argument("--models", default=None, help="쉼표로 구분한 기대 모델 목록")
     ap.add_argument("--questions", default=None,
-                    help="기대 문항 파일(questions_v1.jsonl). 없으면 파일 내용에서 추론")
+                    help="기대 문항 파일(questions_v1.jsonl). 필수")
+    ap.add_argument("--infer-grid-from-file", action="store_true",
+                    help="기대 격자를 결과 파일 내용에서 역산(모델·문항 통째 누락을 못 잡는다). "
+                         "확인용으로만 쓸 것")
     ap.add_argument("--runs", default="1", help="기대 회차 (예: 1 또는 1,2,3)")
     ap.add_argument("--no-strict-tokens", action="store_true",
                     help="토큰 불일치를 경고로만 처리")
@@ -170,18 +214,26 @@ def main() -> int:
     elif args.models_json:
         exp_models = sorted(json.loads(Path(args.models_json).read_text(encoding="utf-8")))
         src_m = args.models_json
-    else:
+    elif args.infer_grid_from_file:
         exp_models = sorted({r.get("model") for r in recs})
         src_m = "(파일 내용에서 추론 — 모델 통째 누락은 못 잡는다)"
+    else:
+        print("[실패] 기대 모델 목록이 없습니다. --models-json 또는 --models 를 주세요.\n"
+              "       (확인용으로 파일 내용에서 역산하려면 --infer-grid-from-file)")
+        return 2
 
     if args.questions:
         qp = Path(args.questions)
         exp_qids = [json.loads(l)["qid"] if "qid" in json.loads(l) else json.loads(l)["query_id"]
                     for l in qp.read_text(encoding="utf-8").splitlines() if l.strip()]
         src_q = args.questions
-    else:
+    elif args.infer_grid_from_file:
         exp_qids = sorted({r.get("qid") for r in recs})
         src_q = "(파일 내용에서 추론 — 문항 통째 누락은 못 잡는다)"
+    else:
+        print("[실패] 기대 문항 파일이 없습니다. --questions 를 주세요.\n"
+              "       (확인용으로 파일 내용에서 역산하려면 --infer-grid-from-file)")
+        return 2
 
     exp_runs = [int(x) for x in str(args.runs).split(",") if x.strip()]
     print(f"기대 격자: 모델 {len(exp_models)} × 문항 {len(exp_qids)} × 회차 {len(exp_runs)} "
@@ -202,77 +254,141 @@ def main() -> int:
         rep.bad(f"기대 격자 밖의 행 {len(extra)}건", [str(k) for k in extra])
 
     # ---------- 3·4. 토큰 ----------
+    # 오류 행은 토큰·빈답·추론 판정에서 한 번만 센다. 여러 항목에서 중복으로
+    # 실패로 잡히면 무엇이 문제인지 흐려진다. (#23 리뷰)
+    err_rows = [r for r in recs if r.get("error") or r.get("status") == "error"]
+    err_keys = {_key(r) for r in err_rows}
+    good = [r for r in recs if _key(r) not in err_keys]
+    if err_rows:
+        rep.bad(f"오류 행 {len(err_rows)}건 — 재실행 필요",
+                [f"{_key(r)}: {str(r.get('error'))[:80]}" for r in err_rows])
+    else:
+        rep.ok("오류 행 없음")
+
     inv_files = sorted((base / "runs").glob("*/invocations.jsonl"))
     if inv_files:
+        # attempt_id 가 있으면 같은 시도의 줄만 본다. 같은 폴더에 다시 돌렸을 때
+        # 이전 시도의 호출 기록이 함께 더해져 전부 거짓 불일치가 됐다. (#23 리뷰)
         turn_sum: dict = defaultdict(int)
-        raw_sum: dict = defaultdict(int)
-        raw_seen: dict = defaultdict(bool)
+        raw_cols: dict = defaultdict(lambda: {c: 0 for c in TOKEN_COLS})
+        raw_seen: dict = {}
+        other_attempts = 0
+        row_attempt = {_key(r): r.get("attempt_id") for r in recs}
         for f in inv_files:
             for _, d in _read_jsonl(f):
                 if "__parse_error__" in d:
                     continue
                 k = (d.get("qid"), d.get("model"), d.get("run", 1))
+                want = next((a for kk, a in row_attempt.items()
+                             if kk[:3] == k and a), None)
+                if want and d.get("attempt_id") and d["attempt_id"] != want:
+                    other_attempts += 1
+                    continue
                 turn_sum[k] += d.get("prompt_tokens") or 0
-                rp = _raw_prompt_total(d.get("usage_raw"))
-                if rp is not None:
-                    raw_sum[k] += rp
+                cols = _cols_from_raw(d.get("usage_raw"))
+                if cols:
                     raw_seen[k] = True
+                    for c in TOKEN_COLS:
+                        v = cols.get(c)
+                        if isinstance(v, int):
+                            raw_cols[k][c] += v
+        if other_attempts:
+            rep.note(f"다른 attempt_id 의 호출 기록 {other_attempts}줄은 대조에서 제외 "
+                     f"(과금분이므로 별도 집계 대상)")
 
-        mismatch, raw_mismatch = [], []
-        for r in recs:
-            k = _key(r)
-            if k not in turn_sum:
-                continue
-            got = sum(_tok(r, c) for c in ("uncached_input", "cache_read", "cache_creation"))
-            if got != turn_sum[k]:
-                mismatch.append(f"{k}: 레코드 {got} vs 호출기록 {turn_sum[k]}")
-            if raw_seen.get(k) and got != raw_sum[k]:
-                raw_mismatch.append(f"{k}: 레코드 {got} vs usage_raw {raw_sum[k]}")
-
-        covered = sum(1 for r in recs if _key(r) in turn_sum)
-        if covered < len(recs):
-            rep.note(f"호출기록이 {covered}/{len(recs)}행만 덮는다 — "
-                     f"나머지는 토큰 대조에서 빠진다")
-        label = f"토큰 4열 합 == 턴별 prompt_tokens 합 (대조 {covered}/{len(recs)}행)"
-        if mismatch and not args.no_strict_tokens:
-            rep.bad(f"{label} — 불일치 {len(mismatch)}건", mismatch)
-        elif mismatch:
-            rep.note(f"{label} — 불일치 {len(mismatch)}건 (경고 모드)")
-            for m in mismatch[:5]:
-                print(f"    {m}")
+        covered = sum(1 for r in good if _key(r)[:3] in turn_sum)
+        if covered == 0:
+            rep.skip(f"이 폴더의 호출 기록이 답변 행을 덮지 않아 토큰 대조 불가 "
+                     f"(0/{len(good)}행) — System A/B 는 해당 없음")
         else:
-            rep.ok(label)
+            if covered < len(good):
+                rep.note(f"호출기록이 {covered}/{len(good)}행만 덮는다")
+            mismatch, raw_mismatch = [], []
+            for r in good:
+                k = _key(r)[:3]
+                if k not in turn_sum:
+                    continue
+                got = sum(_tok(r, c) for c in
+                          ("uncached_input", "cache_read", "cache_creation"))
+                if got != turn_sum[k]:
+                    mismatch.append(f"{k}: 레코드 {got} vs 호출기록 {turn_sum[k]}")
+                if raw_seen.get(k):
+                    for c in TOKEN_COLS:
+                        want = raw_cols[k][c]
+                        have = _tok(r, c)
+                        if have != want:
+                            raw_mismatch.append(
+                                f"{k}.{c}: 레코드 {have} vs usage_raw {want}")
+            label = f"토큰 입력 합 == 턴별 prompt_tokens 합 (대조 {covered}/{len(good)}행)"
+            if mismatch:
+                if args.no_strict_tokens:
+                    rep.note(f"{label} — 불일치 {len(mismatch)}건 (경고 모드)")
+                    for m in mismatch[:5]:
+                        print(f"    {m}")
+                else:
+                    rep.bad(f"{label} — 불일치 {len(mismatch)}건", mismatch)
+            else:
+                rep.ok(label)
 
-        if raw_seen:
-            if raw_mismatch and not args.no_strict_tokens:
-                rep.bad(f"토큰 4열 합 == usage_raw 원본 합 — 불일치 {len(raw_mismatch)}건",
-                        raw_mismatch)
-            elif not raw_mismatch:
-                rep.ok(f"토큰 4열 합 == usage_raw 원본 합 (대조 {len(raw_seen)}건)")
-        else:
-            rep.skip("usage_raw 가 호출기록에 없어 원본 대조 불가 "
-                     "(구버전 실행 결과. 재실행하면 기록된다)")
+            if raw_seen:
+                lab2 = f"4열 전부 == usage_raw 재계산 (대조 {len(raw_seen)}행)"
+                if raw_mismatch:
+                    # 경고 모드에서도 반드시 보여준다. 예전에는 아무것도 안 나왔다. (#23 리뷰)
+                    if args.no_strict_tokens:
+                        rep.note(f"{lab2} — 불일치 {len(raw_mismatch)}건 (경고 모드)")
+                        for m in raw_mismatch[:10]:
+                            print(f"    {m}")
+                    else:
+                        rep.bad(f"{lab2} — 불일치 {len(raw_mismatch)}건", raw_mismatch)
+                else:
+                    rep.ok(lab2)
+            else:
+                rep.skip("usage_raw 가 호출기록에 없어 4열 재계산 대조 불가 "
+                         "(구버전 실행 결과. 재실행하면 기록된다)")
     else:
         rep.skip("invocations.jsonl 이 없어 토큰 대조 불가 (System A/B 는 해당 없음)")
 
-    # ---------- 5. 빈 응답 ----------
-    zero_out = [f"{_key(r)}" for r in recs if _tok(r, "output") == 0 and not r.get("error")]
-    empty_ans = [f"{_key(r)}" for r in recs if not (r.get("answer") or "").strip()]
+    # ---------- 5. 빈 응답 / 제출 / 인용 ----------
+    zero_out = [f"{_key(r)}" for r in good if _tok(r, "output") == 0]
+    empty_ans = [f"{_key(r)}" for r in good if not (r.get("answer") or "").strip()]
     if zero_out:
-        rep.bad(f"출력 토큰 0인데 error 도 없는 행 {len(zero_out)}건", zero_out)
+        rep.bad(f"출력 토큰 0인 행 {len(zero_out)}건 (오류 행 제외)", zero_out)
     else:
         rep.ok("출력 토큰 0인 행 없음")
     if empty_ans:
-        rep.bad(f"answer 가 빈 행 {len(empty_ans)}건", empty_ans)
+        rep.bad(f"answer 가 빈 행 {len(empty_ans)}건 (오류 행 제외)", empty_ans)
+
+    no_sub = [f"{_key(r)}" for r in good if r.get("status") == "no_submit"]
+    if any("status" in r for r in recs):
+        if no_sub:
+            # submit_answer 없이 끝난 행은 근거 페이지가 없다. 통과로 두면 안 된다. (#23 리뷰)
+            rep.bad(f"submit_answer 없이 끝난 행 {len(no_sub)}건", no_sub)
+        else:
+            rep.ok("전 행이 submit_answer 로 제출됨")
+
+    # 읽지 않은 페이지를 인용한 행
+    if any("cited_pages" in r for r in recs):
+        bad_cite = []
+        for r in good:
+            read = set((r.get("retrieved") or {}).get("wiki_pages") or [])
+            cited = set(r.get("cited_pages") or [])
+            extra = cited - read
+            if extra:
+                bad_cite.append(f"{_key(r)}: {sorted(extra)}")
+        if bad_cite:
+            rep.bad(f"read_page 로 읽지 않은 페이지를 인용한 행 {len(bad_cite)}건", bad_cite)
+        else:
+            rep.ok("인용 페이지가 모두 열람 기록 안에 있음")
 
     # ---------- 6. 추론 강도 ----------
     if any("reasoning_applied" in r for r in recs):
         not_applied = [f"{_key(r)} (effort={r.get('reasoning_effort')})"
-                       for r in recs if not r.get("reasoning_applied")]
+                       for r in good if not r.get("reasoning_applied")]
         if not_applied:
-            rep.bad(f"추론 강도가 적용되지 않은 행 {len(not_applied)}건", not_applied)
+            rep.bad(f"추론 강도가 적용되지 않은 행 {len(not_applied)}건 (오류 행 제외)",
+                    not_applied)
         else:
-            efforts = Counter(r.get("reasoning_effort") for r in recs)
+            efforts = Counter(r.get("reasoning_effort") for r in good)
             rep.ok(f"추론 강도 전 행 적용 — {dict(efforts)}")
     else:
         rep.skip("reasoning_applied 필드 없음 (System A/B)")

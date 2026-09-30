@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from run_agent import run_agent, ABSTAIN_PHRASE, _build_system_prompt, _load_models, reset_interval_wait, get_interval_wait_s
+from run_agent import run_agent, ABSTAIN_PHRASE, MAX_OUTPUT_TOKENS, _build_system_prompt, _load_models, reset_interval_wait, get_interval_wait_s
 
 # ---------------------------------------------------------------------------
 # 상수
@@ -41,9 +41,13 @@ SCHEMA_VERSION = "0.3"
 CORPUS_COMMIT = "1ac132b5ecd42cb6c78772f2576ed6f7fc814183"
 CORPUS_PHASE = "integrated"
 # 위키 컴파일러가 읽어야 하는 입력. 위키 프론트매터의 corpus_source 와 대조한다. (#23 1-4)
+# 경로는 저장소 루트 기준으로 잡는다. 실행 위치 기준이면 다른 디렉터리에서 돌렸을 때
+# 조용히 못 읽고, snapshot 대조를 건너뛴 채 통과한다. (#23 리뷰)
+REPO_ROOT = Path(__file__).resolve().parents[3]
 EXPECTED_CORPUS_SOURCE = os.environ.get(
     "CORPUS_DOCS", "corpus/tiers/c3/processed/documents.jsonl")
-SNAPSHOT_JSON = Path("corpus/tiers/c3/metadata/snapshot.json")
+SNAPSHOT_JSON = REPO_ROOT / "corpus/tiers/c3/metadata/snapshot.json"
+IDENTIFIER_CONFIG_DEFAULT = REPO_ROOT / "systems/system_a_rag/rag_proto/configs/pipeline.yaml"
 REASONING_EFFORT_LABEL = "light"
 
 
@@ -86,12 +90,19 @@ def _read_corpus_meta() -> dict:
     """corpus/tiers/c3/metadata/snapshot.json에서 corpus_snapshot, corpus_version을 읽는다."""
     try:
         data = json.loads(SNAPSHOT_JSON.read_text(encoding="utf-8"))
-        return {
+        meta = {
             "corpus_snapshot": data.get("snapshot_id"),
             "corpus_version": data.get("corpus_version"),
         }
-    except Exception:
-        return {"corpus_snapshot": None, "corpus_version": None}
+    except Exception as exc:  # noqa: BLE001
+        # 여기서 None 을 돌려주면 아래 snapshot 대조가 통째로 건너뛰어진다. (#23 리뷰)
+        raise SystemExit(
+            f"[오류] {SNAPSHOT_JSON} 을 읽을 수 없습니다 ({exc}).\n"
+            "       코퍼스 스냅샷을 확인하지 못한 채로는 실행하지 않습니다."
+        )
+    if not meta["corpus_snapshot"]:
+        raise SystemExit(f"[오류] {SNAPSHOT_JSON} 에 snapshot_id 가 없습니다.")
+    return meta
 
 
 def _get_wiki_build(wiki_root: Path) -> str:
@@ -152,6 +163,8 @@ def check_wiki_provenance(wiki_root: Path, expected_source: str,
         problems.append(f"출처 정보가 없는 페이지 {missing}개(구버전 컴파일)")
     if sources - {expected_source}:
         problems.append(f"다른 경로로 컴파일된 페이지: {sorted(sources - {expected_source})}")
+    if not snapshots:
+        problems.append("위키에 corpus_snapshot 이 하나도 없다(전부 UNKNOWN 또는 누락)")
     if expected_snapshot and snapshots - {expected_snapshot}:
         problems.append(
             f"snapshot 불일치 — 레코드에 적을 값 {expected_snapshot} / "
@@ -177,18 +190,49 @@ def check_wiki_provenance(wiki_root: Path, expected_source: str,
     }
 
 
+def _wiki_pages_digest(wiki_root: Path) -> str:
+    """위키 페이지 경로+내용의 해시. 위키가 바뀌면 config_hash 도 바뀐다. (#23 리뷰)"""
+    h = hashlib.sha256()
+    for md in sorted(wiki_root.rglob("*.md")):
+        h.update(md.relative_to(wiki_root).as_posix().encode("utf-8"))
+        h.update(b"\0")
+        h.update(md.read_bytes())
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def _tool_defs_digest() -> str:
+    """도구 정의(list_pages / read_page / submit_answer) 해시."""
+    try:
+        from run_agent import _tools_responses, _tools_chat, _tools_anthropic
+        blob = json.dumps(
+            [_tools_responses(), _tools_chat(), _tools_anthropic()],
+            sort_keys=True, ensure_ascii=False, default=str)
+    except Exception:  # noqa: BLE001
+        from run_agent import _tools_responses
+        blob = json.dumps(_tools_responses(), sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
 def _record_key(rec: dict) -> tuple:
-    return (rec.get("qid"), rec.get("model"), rec.get("run", 1))
+    # wiki_label 을 넣는다. 같은 질문·모델이라도 다른 위키로 돌린 건 다른 행이다. (#23 리뷰)
+    return (rec.get("qid"), rec.get("model"), rec.get("run", 1), rec.get("wiki_label"))
 
 
-def _upsert_answers(answers_path: Path, runs_dir: Path) -> tuple:
+def _upsert_answers(answers_path: Path, partial_dir: Path) -> tuple:
     """기존 answers.jsonl 위에 이번 실행의 partial 결과를 덮어씌운다. (#23 3절)
 
-    커밋돼 있는 줄은 그대로 두고, 같은 (qid, model, run) 이 새로 나온 것만 교체한다.
-    원자적으로 쓴다(임시파일 → replace). 중간에 죽어도 기존 파일이 잘리지 않는다.
+    - 이번 run 폴더의 .partial 만 재생한다. 예전에는 runs/*/.partial 전체를 폴더
+      이름 순으로 재생해서, 같은 run label 안에 위키를 두 벌 돌리면 이름이 뒤에 오는
+      폴더의 행이 남았다. (#23 리뷰)
+    - 키에 wiki_label 을 넣는다. 같은 (qid, model, run) 이라도 위키가 다르면 다른 행이다.
+    - .partial 마지막 줄이 끊겨 있어도 멈추지 않고 그 줄만 건너뛴다. 예전에는 이후
+      모든 병합이 JSONDecodeError 로 실패했다.
+    - 임시파일 → os.replace 로 원자적으로 쓴다.
     """
     records: dict = {}
     order: list = []
+    skipped_broken = 0
 
     def put(rec: dict) -> str:
         k = _record_key(rec)
@@ -198,64 +242,112 @@ def _upsert_answers(answers_path: Path, runs_dir: Path) -> tuple:
         records[k] = rec
         return "replaced" if seen else "added"
 
-    # 1) 기존 파일 (git 에 커밋돼 있는 것 포함)
-    if answers_path.exists():
-        for line in answers_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line:
-                put(json.loads(line))
-    kept_before = len(records)
-
-    # 2) 모든 run 의 partial 로 덮어쓰기
-    replaced = added = 0
-    for partial_path in sorted(runs_dir.glob("*/.partial/*.jsonl")):
-        for line in partial_path.read_text(encoding="utf-8").splitlines():
+    def feed(path: Path, count_ops: bool) -> tuple:
+        nonlocal skipped_broken
+        rep = add = 0
+        if not path.exists():
+            return rep, add
+        for line in path.read_text(encoding="utf-8").splitlines():
             line = line.strip()
             if not line:
                 continue
-            if put(json.loads(line)) == "replaced":
-                replaced += 1
-            else:
-                added += 1
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                skipped_broken += 1
+                continue
+            op = put(rec)
+            if count_ops:
+                if op == "replaced":
+                    rep += 1
+                else:
+                    add += 1
+        return rep, add
+
+    feed(answers_path, False)                     # 커밋돼 있는 줄 포함
+    kept_before = len(records)
+    replaced = added = 0
+    for partial_path in sorted(partial_dir.glob("*.jsonl")):
+        r, a = feed(partial_path, True)
+        replaced += r
+        added += a
 
     tmp = answers_path.with_suffix(".jsonl.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
         for k in order:
             f.write(json.dumps(records[k], ensure_ascii=False) + "\n")
     os.replace(tmp, answers_path)
+    if skipped_broken:
+        print(f"[경고] 깨진 줄 {skipped_broken}개를 건너뛰었다 (끊긴 마지막 줄 등)",
+              file=sys.stderr)
     return len(records), kept_before - replaced, replaced, added
 
 
-def _load_existing(path: Path, cfg_hash: str | None = None,
-                   allow_config_change: bool = False) -> set:
-    """이미 끝난 (qid, model, run) 세트. 설정이 바뀌었으면 이어하지 않는다. (#23 3절)
-
-    config_hash 를 보지 않고 이어하면, 추론 강도나 프롬프트를 바꾼 뒤 재개했을 때
-    한 파일 안에 서로 다른 조건의 행이 섞인다. 그러고도 status 는 전부 ok 다.
-    """
-    if not path.exists():
-        return set()
-    done: set = set()
+def _partition_partial(path: Path, cfg_hash: str) -> tuple:
+    """(다시 돌릴 필요 없는 키, 다시 돌릴 오류 행, 설정이 다른 행) 로 나눈다."""
+    keep: set = set()
+    error_rows: list = []
     stale: dict = {}
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                r = json.loads(line)
-                key = (r["qid"], r["model"], r["run"])
-            except (json.JSONDecodeError, KeyError):
-                continue
-            row_cfg = r.get("config_hash")
-            if cfg_hash and row_cfg and row_cfg != cfg_hash:
-                stale[row_cfg] = stale.get(row_cfg, 0) + 1
-                continue
-            done.add(key)
-    if stale:
-        detail = ", ".join(f"{h}×{n}" for h, n in sorted(stale.items()))
+    if not path.exists():
+        return keep, error_rows, stale
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            r = json.loads(line)
+            key = (r["qid"], r["model"], r["run"])
+        except (json.JSONDecodeError, KeyError):
+            continue
+        row_cfg = r.get("config_hash")
+        if cfg_hash and row_cfg and row_cfg != cfg_hash:
+            stale[row_cfg] = stale.get(row_cfg, 0) + 1
+            continue
+        if r.get("status") == "error" or r.get("error"):
+            error_rows.append(r)      # 완료로 세지 않고 다시 돌린다
+            continue
+        keep.add(key)
+    return keep, error_rows, stale
+
+
+def preflight_resume(partial_dir: Path, models: list, cfg_hash: str,
+                     failed_attempts_path: Path,
+                     allow_config_change: bool) -> dict:
+    """첫 API 호출 전에 선택한 모든 모델의 partial 을 검사한다. (#23 리뷰)
+
+    예전에는 이 검사가 모델 루프 안에 있어서, 뒤 모델에서 exit 3 이 나기 전에
+    앞 모델들이 이미 과금되는 호출을 다 해버렸다.
+    오류 행은 failed_attempts.jsonl 로 옮겨 과금 기록을 남기고 다시 돌린다.
+    """
+    plan: dict = {}
+    stale_all: dict = {}
+    moved = 0
+    for model_name in models:
+        path = partial_dir / f"{model_name}.jsonl"
+        keep, error_rows, stale = _partition_partial(path, cfg_hash)
+        plan[model_name] = keep
+        for h, n in stale.items():
+            stale_all[h] = stale_all.get(h, 0) + n
+        if error_rows:
+            # 과금 기록을 버리지 않고 옮긴다
+            with open(failed_attempts_path, "a", encoding="utf-8") as f:
+                for r in error_rows:
+                    f.write(json.dumps({
+                        "attempt": "resume-requeued",
+                        "qid": r.get("qid"), "model": r.get("model"), "run": r.get("run"),
+                        "error": (r.get("error") or r.get("status") or "")[:500],
+                        "tokens": r.get("tokens"),
+                        "attempt_id": r.get("attempt_id"),
+                        "ts": time.time(),
+                    }, ensure_ascii=False) + "\n")
+            moved += len(error_rows)
+            print(f"  [재실행 예정] {model_name}: 오류 행 {len(error_rows)}개", file=sys.stderr)
+
+    if stale_all:
+        detail = ", ".join(f"{h}×{n}" for h, n in sorted(stale_all.items()))
         msg = (
-            f"[경고] {path} 에 지금과 다른 설정으로 만든 행이 있다 — 현재 {cfg_hash} / 기존 {detail}\n"
+            f"[경고] 기존 결과에 지금과 다른 설정으로 만든 행이 있다 — "
+            f"현재 {cfg_hash} / 기존 {detail}\n"
             f"        설정이 바뀐 뒤 이어서 돌리면 한 파일에 조건이 섞인다.\n"
             f"        새 --run-label 로 처음부터 돌리거나, 의도한 것이면 "
             f"--allow-config-change 를 붙일 것."
@@ -263,9 +355,11 @@ def _load_existing(path: Path, cfg_hash: str | None = None,
         if not allow_config_change:
             print(msg, file=sys.stderr)
             raise SystemExit(3)
-        print(msg + "\n        (--allow-config-change 로 계속 진행: 해당 행은 다시 돌린다)",
-              file=sys.stderr)
-    return done
+        print(msg + "\n        (--allow-config-change: 해당 행은 다시 돌린다)", file=sys.stderr)
+
+    total_done = sum(len(v) for v in plan.values())
+    print(f"[이어하기] 완료 {total_done}건 / 오류 재실행 {moved}건", file=sys.stderr)
+    return plan
 
 
 def _sort_models_kimi_first(models: list[str]) -> list[str]:
@@ -290,16 +384,8 @@ ABSTAIN_TEXT = ABSTAIN_PHRASE
 # 같은 패턴·같은 스톱워드·같은 정렬이어야 A·B·C의 식별자 무손실 지표를 대조할 수 있다. (#23 3절)
 # re.ASCII: 유니코드 \b는 한글도 단어 문자로 봐서 "0x0202입니다"를 놓친다.
 # (rag_proto.schema.extract_identifiers 와 동일한 동작 — pydantic 의존을 피하려고 여기서 재현한다.)
-IDENTIFIER_CONFIG = Path(
-    os.environ.get("IDENTIFIER_CONFIG", "systems/system_a_rag/rag_proto/configs/pipeline.yaml")
-)
-_FALLBACK_PATTERNS = [
-    r"\b0x[0-9A-Fa-f]{4}\b",                     # 클러스터/속성 ID
-    r"\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b",    # CamelCase
-]
-_FALLBACK_STOPWORDS = ["GitHub", "JavaScript", "TypeScript", "README"]
-
-
+_ic = os.environ.get("IDENTIFIER_CONFIG", "").strip()
+IDENTIFIER_CONFIG = Path(_ic) if _ic else IDENTIFIER_CONFIG_DEFAULT
 def _load_identifier_rules() -> tuple:
     """System A 설정에서 patterns/stopwords 를 읽는다. 못 읽으면 폴백을 쓰고 경고한다."""
     try:
@@ -312,11 +398,11 @@ def _load_identifier_rules() -> tuple:
             return pats, stops
         raise ValueError("identifiers.patterns 가 비어 있음")
     except Exception as exc:  # noqa: BLE001
-        print(
-            f"[경고] {IDENTIFIER_CONFIG} 에서 식별자 규칙을 읽지 못해 폴백을 쓴다: {exc}",
-            file=sys.stderr,
+        # 폴백을 조용히 쓰면 A 의 규칙이 바뀌어도 드러나지 않고 어긋난다. (#23 리뷰)
+        raise SystemExit(
+            f"[오류] {IDENTIFIER_CONFIG} 에서 식별자 규칙을 읽지 못했습니다 ({exc}).\n"
+            "       A 와 같은 규칙으로 식별자를 세야 하므로 폴백으로 넘기지 않습니다."
         )
-        return _FALLBACK_PATTERNS, _FALLBACK_STOPWORDS
 
 
 IDENTIFIER_PATTERNS, IDENTIFIER_STOPWORDS = _load_identifier_rules()
@@ -370,6 +456,7 @@ def _to_answer_record(
     error: str | None,
     corpus_meta: dict,
     cfg_hash: str,
+    attempt_id: str,
 ) -> dict:
     tu = result.get("token_usage", {})
     prompt = tu.get("prompt_tokens")
@@ -430,6 +517,7 @@ def _to_answer_record(
         "turns": result.get("turns", 0),
         "wiki_build": wiki_build,
         "wiki_label": wiki_label,
+        "attempt_id": attempt_id,
         "wiki_corpus_source": corpus_meta.get("wiki_corpus_source"),
         "wiki_corpus_snapshot": corpus_meta.get("wiki_corpus_snapshot"),
         # 실제로 전송된 경우에만 라벨을 남긴다 (전송 안 됐는데 low로 기록되는 것 방지)
@@ -514,23 +602,43 @@ def run_batch(
     ordered_models = _sort_models_kimi_first(models_list)
 
     # ---- config_hash ----
-    # 실행 조건이 하나라도 바뀌면 해시가 달라지도록, 프롬프트와 모델 레지스트리를
-    # 값 그대로 넣는다. (#23 3절)
+    # 나눠 돌려도 같은 해시가 나와야 한다. 그래서 "이번에 고른 모델"이 아니라
+    # models.json 전체를 넣는다. 예전에는 DeepSeek만 따로 돌리면 해시가 달라져
+    # 검증기의 단일 해시 검사에서 떨어지고 이어하기가 exit 3 으로 멈췄다. (#23 리뷰)
+    # run_label 도 뺀다 — 같은 조건인데 폴더 이름만 달라도 해시가 바뀌면
+    # 나눠 돌린 결과를 합칠 수 없다.
     cfg = {
         "wiki_root": wiki_root,
         "wiki_label": wiki_label,
         "wiki_build": wiki_build,
+        # 위키 본문도 넣는다. 같은 컴파일러로 다시 만든 위키의 행이 섞이는 것을 막는다.
+        "wiki_pages_sha256": _wiki_pages_digest(Path(wiki_root)),
         "max_turns": max_turns,
-        "run_label": run_label,
+        "max_output_tokens": MAX_OUTPUT_TOKENS,
         "system_prompt_sha256": hashlib.sha256(
             _build_system_prompt().encode("utf-8")
         ).hexdigest(),
         "abstain_phrase": ABSTAIN_PHRASE,
-        "models": {name: models_db.get(name, {}) for name in sorted(ordered_models)},
+        "tool_defs_sha256": _tool_defs_digest(),
+        "identifier_rules": {"patterns": list(IDENTIFIER_PATTERNS),
+                             "stopwords": list(IDENTIFIER_STOPWORDS)},
+        "models": models_db,
     }
     cfg_hash = _config_hash(cfg)
 
+    # 이번 실행을 구분하는 값. invocations 줄과 레코드에 함께 적어, 같은 폴더에
+    # 다시 돌렸을 때 이전 시도의 호출 기록과 섞이지 않게 한다. (#23 리뷰)
     started_at = datetime.now(timezone.utc).isoformat()
+    attempt_id = hashlib.sha256(
+        f"{cfg_hash}|{run_label}|{run}|{started_at}".encode("utf-8")
+    ).hexdigest()[:12]
+    print(f"[실행] config_hash={cfg_hash} attempt_id={attempt_id}", file=sys.stderr)
+
+    # ---- 첫 API 호출 전에 전 모델 이어하기 검사 ----
+    resume_plan = preflight_resume(
+        partial_dir, ordered_models, cfg_hash, failed_attempts_path, allow_config_change
+    )
+
     summary_models: dict[str, dict] = {}
 
     # invocations / failed_attempts 파일 열기 (append 모드)
@@ -540,8 +648,7 @@ def run_batch(
     try:
         for model_name in ordered_models:
             partial_path = partial_dir / f"{model_name}.jsonl"
-            # 재개 판정은 partial 파일 기준. 설정(config_hash)이 다르면 이어하지 않는다.
-            done = _load_existing(partial_path, cfg_hash, allow_config_change)
+            done = resume_plan.get(model_name, set())   # 선행 검사 결과 (#23 리뷰)
 
             ok = err = abstained_count = 0
             model_start = time.time()
@@ -577,6 +684,10 @@ def run_batch(
                             wiki_root=wiki_root,
                         )
                         q_status = result.get("status", "ok")
+                        # 잘림·거절·호출 실패로 status=error 가 돌아오면 사유도 함께 남긴다.
+                        if q_status == "error" and result.get("error"):
+                            error = result["error"]
+                            print(f"ERR({error[:60]})", file=sys.stderr)
                     except Exception as e:
                         q_status = "error"
                         error = f"{e.__class__.__name__}: {e}"
@@ -607,6 +718,7 @@ def run_batch(
                         error=error,
                         corpus_meta=corpus_meta,
                         cfg_hash=cfg_hash,
+                        attempt_id=attempt_id,
                     )
 
                     # append to partial
@@ -616,6 +728,7 @@ def run_batch(
                     # invocations.jsonl: 턴별 1줄
                     for td in result.get("turn_details", []):
                         inv_line = {
+                            "attempt_id": attempt_id,
                             "qid": qid,
                             "model": model_name,
                             "run": run,
@@ -675,7 +788,7 @@ def run_batch(
     # 클론받은 곳에서 한 모델만 재실행할 때 커밋돼 있던 다른 모델 줄이 전부 사라진다.
     # 기존 answers.jsonl을 읽어두고 (qid, model, run) 단위로 이번 결과만 갈아끼운다. (#23 3절)
     answers_path = base_dir / "answers.jsonl"
-    merged, kept, replaced, added = _upsert_answers(answers_path, base_dir / "runs")
+    merged, kept, replaced, added = _upsert_answers(answers_path, partial_dir)
     print(
         f"[병합] {answers_path} — 총 {merged}줄 "
         f"(유지 {kept} / 교체 {replaced} / 신규 {added})",

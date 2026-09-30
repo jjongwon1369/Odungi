@@ -101,8 +101,12 @@ for name, cfg in MODELS.items():
     key = os.environ.get(cfg["key_env"], "")
     if not key:
         print(f"{name:<18} {'-':<12} KEY없음"); continue
-    base = (os.environ.get(cfg["base_url_env"]) if cfg.get("base_url_env")
-            else "https://api.openai.com/v1")
+    # 엔드포인트는 models.json 의 base_url 만 쓴다. 폴백을 두면
+    # base_url 이 없는 항목의 키가 엉뚱한 호스트로 전송된다 — 실제로
+    # base_url_env 를 지운 뒤 DeepSeek·Kimi 키가 api.openai.com 으로 갈 수 있었다. (#23)
+    base = cfg.get("base_url")
+    if not base:
+        print(f"{name:<18} {'-':<12} base_url없음(models.json 확인)"); continue
 
     if cfg["provider"] == "anthropic":
         api = "messages"

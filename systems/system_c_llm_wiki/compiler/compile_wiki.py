@@ -37,8 +37,11 @@ MODEL_NAME = os.environ.get("WIKI_COMPILER_MODEL", "TODO-내일-확정")
 CORPUS_DOCS = Path(os.environ.get("CORPUS_DOCS", "corpus/tiers/c3/processed/documents.jsonl"))
 # 코퍼스 메타데이터. 컴파일 산출물에 snapshot_id 를 박아 위키가 어느 코퍼스에서 나왔는지
 # 레코드와 대조할 수 있게 한다. (#23 1-4)
-CORPUS_SNAPSHOT_JSON = Path(os.environ.get(
-    "CORPUS_SNAPSHOT_JSON", "corpus/tiers/c3/metadata/snapshot.json"))
+# 실제로 읽은 documents.jsonl 줄에서 채운다. load_documents() 가 설정한다.
+CORPUS_SNAPSHOT_ID: str | None = None
+# 호출 단위 과금 기록. create() 가 돌아오는 즉시 한 줄씩 덧붙인다.
+BUILD_CALLS_NAME = "build_calls.jsonl"
+TOKEN_COLUMNS = ("uncached_input", "cache_creation", "cache_read", "output")
 
 # 엔드포인트는 코드에 박는다. base_url 을 생략하면 SDK가 OPENAI_BASE_URL /
 # ANTHROPIC_BASE_URL 환경변수를 읽어버려, 어느 엔드포인트로 컴파일한 위키인지
@@ -113,37 +116,6 @@ def _call_with_retries(fn, tries: int = 2, base_delay: int = 8, what: str = "API
     raise last_err  # 여기 도달하면 안 되지만 안전망
 
 
-TOKEN_COLUMNS = ("input", "output", "cache_read", "cache_creation")
-
-
-def merge_build_tokens(prev_entities: dict | None, new_entities: dict) -> tuple:
-    """엔티티별 토큰 기록을 병합하고 합계를 다시 계산한다. (#23 1-3)
-
-    - 이어서 컴파일해도 앞선 실행의 비용이 남는다(덮어쓰기 방지).
-    - --force 로 같은 엔티티를 다시 만들면 새 값으로 교체된다(이중 계상 방지).
-    - 합계는 항상 병합 결과에서 재계산한다. 누적 덧셈은 재컴파일 때 두 번 더해진다.
-    """
-    merged = dict(prev_entities or {})
-    merged.update(new_entities or {})
-    totals = {col: 0 for col in TOKEN_COLUMNS}
-    for usage in merged.values():
-        for col in TOKEN_COLUMNS:
-            v = usage.get(col)
-            if isinstance(v, int):
-                totals[col] += v
-    return merged, totals
-
-
-def load_corpus_snapshot() -> str | None:
-    """코퍼스 snapshot_id. 위키 프론트매터에 박아 레코드와 대조한다. (#23 1-4)"""
-    try:
-        data = json.loads(CORPUS_SNAPSHOT_JSON.read_text(encoding="utf-8"))
-        return data.get("snapshot_id")
-    except Exception as exc:  # noqa: BLE001
-        print(f"[경고] {CORPUS_SNAPSHOT_JSON} 을 읽지 못함: {exc}", file=sys.stderr)
-        return None
-
-
 def _usage_raw(usage) -> dict | None:
     """SDK usage 객체를 그대로 dict 로 남긴다. (#23 1-3)
 
@@ -165,7 +137,121 @@ def _usage_raw(usage) -> dict | None:
         return {"repr": str(usage)}
 
 
-def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: str = None):
+class TruncatedResponse(RuntimeError):
+    """출력 상한·차단·거절로 본문이 온전하지 않은 응답. 페이지로 저장하지 않는다."""
+
+
+def _max_output_tokens() -> int:
+    """Anthropic max_tokens. 4096은 큰 엔티티에서 잘린 페이지를 만든다. (#23 리뷰)"""
+    return int(os.environ.get("WIKI_COMPILER_MAX_TOKENS", "16000"))
+
+
+def build_calls_path() -> Path:
+    return WIKI_ROOT / BUILD_CALLS_NAME
+
+
+def record_build_call(entity_key: str, attempt: int, cols: dict) -> None:
+    """API 호출 하나를 즉시 기록한다. (#23 리뷰)
+
+    create() 가 돌아온 호출은 이미 과금됐다. 페이지 저장 실패, --force 재컴파일,
+    중간 Ctrl-C 로 이 기록이 사라지면 실제로 쓴 돈이 장부에서 빠진다.
+    그래서 집계 파일(build_tokens.json)이 아니라 append-only 원장에 먼저 적는다.
+    """
+    path = build_calls_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "entity": entity_key,
+        "attempt": attempt,
+        "compiled_by": f"{MODEL_PROVIDER}/{MODEL_NAME}",
+        **{c: cols.get(c) for c in TOKEN_COLUMNS},
+        "api_shape": cols.get("api_shape"),
+        "usage_raw": cols.get("usage_raw"),
+    }
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(line, ensure_ascii=False) + "\n")
+
+
+def aggregate_build_calls(lines: list) -> tuple:
+    """원장 줄들 → (합계 4열, 엔티티별 시도 수). 모든 시도를 더한다.
+
+    --force 재컴파일도 과금되므로 시도를 덮어쓰지 않고 전부 더한다. (#23 리뷰)
+    """
+    totals = {c: 0 for c in TOKEN_COLUMNS}
+    per_entity: dict = {}
+    for d in lines:
+        for c in TOKEN_COLUMNS:
+            v = d.get(c)
+            if isinstance(v, int):
+                totals[c] += v
+        e = per_entity.setdefault(d.get("entity"), {"attempts": 0,
+                                                   **{c: 0 for c in TOKEN_COLUMNS}})
+        e["attempts"] += 1
+        for c in TOKEN_COLUMNS:
+            v = d.get(c)
+            if isinstance(v, int):
+                e[c] += v
+    return totals, per_entity
+
+
+def write_build_tokens(ssot_commit: str) -> dict:
+    """원장에서 집계해 build_tokens.json 을 원자적으로 쓴다."""
+    ledger = build_calls_path()
+    lines = []
+    if ledger.exists():
+        for i, raw in enumerate(ledger.read_text(encoding="utf-8").splitlines(), 1):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                lines.append(json.loads(raw))
+            except json.JSONDecodeError as exc:
+                # 조용히 넘기면 과금분이 장부에서 빠진다. 멈추고 사람이 보게 한다.
+                raise SystemExit(
+                    f"[오류] {ledger}:{i} 를 읽을 수 없습니다 ({exc}). "
+                    "이 줄도 과금된 호출이므로 임의로 버리지 않습니다."
+                )
+    totals, per_entity = aggregate_build_calls(lines)
+    out = {
+        "wiki_root": WIKI_ROOT.as_posix(),
+        "compiled_by": f"{MODEL_PROVIDER}/{MODEL_NAME}",
+        "corpus_source": CORPUS_DOCS.as_posix(),
+        "corpus_snapshot": CORPUS_SNAPSHOT_ID,
+        "ssot_commit": ssot_commit,
+        "ledger": ledger.name,
+        "calls": len(lines),
+        "columns": list(TOKEN_COLUMNS),
+        "note": ("A·B 와 같은 4열이다. uncached_input 은 캐시를 제외한 입력이므로 "
+                 "provider 사이에 의미가 같다. 그래도 합산하지 말 것."),
+        "totals": totals,
+        "per_entity": per_entity,
+    }
+    tmp = WIKI_ROOT / "build_tokens.json.tmp"
+    tmp.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, WIKI_ROOT / "build_tokens.json")
+    return out
+
+
+def _count_prior_attempts() -> dict:
+    """원장에서 엔티티별 기존 시도 수를 센다. 시도 번호를 이어 붙이기 위함."""
+    path = build_calls_path()
+    counts: dict = {}
+    if not path.exists():
+        return counts
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            d = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        counts[d.get("entity")] = counts.get(d.get("entity"), 0) + 1
+    return counts
+
+
+def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: str = None,
+             entity_key: str = "-", attempt: int = 1):
     """(본문, 토큰 4열 dict)을 돌려준다. 위키 구축 비용을 기록하기 위함. (#23 3절)"""
     provider = provider or MODEL_PROVIDER
     model = model or MODEL_NAME
@@ -180,24 +266,28 @@ def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: 
         resp = _call_with_retries(
             lambda: client.messages.create(
                 model=model,
-                max_tokens=4096,
+                max_tokens=_max_output_tokens(),
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
             ),
             what="Anthropic API",
         )
         u = getattr(resp, "usage", None)
-        return resp.content[0].text, {
-            # Anthropic 의 input_tokens 는 캐시 읽기·쓰기를 제외한 순수 입력이다.
-            # OpenAI 의 prompt_tokens 는 캐시를 포함한다. 같은 칼럼에 넣되
-            # input_semantics 로 구분한다. 절대 합산하지 않는다. (#23 1-3)
-            "input": getattr(u, "input_tokens", None),
-            "output": getattr(u, "output_tokens", None),
-            "cache_read": getattr(u, "cache_read_input_tokens", None),
+        cols = {
+            # Anthropic input_tokens 는 캐시를 제외한 값이라 그대로 uncached_input 이다.
+            "uncached_input": getattr(u, "input_tokens", None),
             "cache_creation": getattr(u, "cache_creation_input_tokens", None),
-            "input_semantics": "excludes_cache",
+            "cache_read": getattr(u, "cache_read_input_tokens", None),
+            "output": getattr(u, "output_tokens", None),
+            "api_shape": "anthropic_messages",
             "usage_raw": _usage_raw(u),
         }
+        record_build_call(entity_key, attempt, cols)   # 과금됐으니 먼저 적는다
+        stop = getattr(resp, "stop_reason", None)
+        if stop in ("max_tokens", "refusal"):
+            raise TruncatedResponse(
+                f"Anthropic stop_reason={stop} — 잘린/거절된 본문을 페이지로 저장하지 않습니다.")
+        return resp.content[0].text, cols
     elif provider == "openai":
         from openai import OpenAI  # pip install openai
         api_key = os.environ.get("OPENAI_API_KEY")
@@ -228,15 +318,26 @@ def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: 
         cache_write = getattr(det, "cache_write_tokens", None) if det else None
         if cache_write is None:
             cache_write = getattr(u, "cache_write_tokens", None)   # 일부 게이트웨이 대비
-        return resp.choices[0].message.content, {
-            # OpenAI 의 prompt_tokens 는 캐시 읽기를 포함한 전체 입력이다.
-            "input": getattr(u, "prompt_tokens", None),
-            "output": getattr(u, "completion_tokens", None),
-            "cache_read": getattr(det, "cached_tokens", None) if det else None,
+        cache_read = getattr(det, "cached_tokens", None) if det else None
+        prompt = getattr(u, "prompt_tokens", None)
+        # OpenAI prompt_tokens 는 캐시를 포함한다. A 와 같은 4열로 만들려면 빼야 한다.
+        uncached = (max(0, prompt - (cache_read or 0) - (cache_write or 0))
+                    if isinstance(prompt, int) else None)
+        cols = {
+            "uncached_input": uncached,
             "cache_creation": cache_write,
-            "input_semantics": "includes_cache",
+            "cache_read": cache_read,
+            "output": getattr(u, "completion_tokens", None),
+            "api_shape": "openai_chat",
             "usage_raw": _usage_raw(u),
         }
+        record_build_call(entity_key, attempt, cols)
+        choice = (resp.choices or [None])[0]
+        fr = getattr(choice, "finish_reason", None) if choice else None
+        if fr in ("length", "content_filter"):
+            raise TruncatedResponse(
+                f"OpenAI finish_reason={fr} — 잘린/차단된 본문을 페이지로 저장하지 않습니다.")
+        return choice.message.content, cols
     elif provider == "google":
         # 주의: google-generativeai(구 SDK)는 2026년에 지원 종료됨.
         # 새 SDK인 google-genai 를 써야 함: pip install -U google-genai
@@ -254,8 +355,20 @@ def call_llm(system_prompt: str, user_prompt: str, provider: str = None, model: 
             ),
             what="Gemini API",
         )
-        return resp.text, {"input": None, "output": None,
-                           "cache_read": None, "cache_creation": None}
+        um = getattr(resp, "usage_metadata", None)
+        prompt = getattr(um, "prompt_token_count", None) if um else None
+        cached = getattr(um, "cached_content_token_count", None) if um else None
+        cols = {
+            "uncached_input": (max(0, prompt - (cached or 0))
+                               if isinstance(prompt, int) else None),
+            "cache_creation": None,       # Gemini 는 캐시 쓰기를 응답에 주지 않는다
+            "cache_read": cached,
+            "output": getattr(um, "candidates_token_count", None) if um else None,
+            "api_shape": "google_genai",
+            "usage_raw": _usage_raw(um),
+        }
+        record_build_call(entity_key, attempt, cols)
+        return resp.text, cols
     else:
         raise ValueError(f"알 수 없는 provider: {provider}")
 
@@ -475,6 +588,7 @@ def load_documents() -> dict:
         )
     prefix = "corpus/raw/connectedhomeip/"
     docs: dict = {}
+    snapshot_ids: set = set()
     for line in CORPUS_DOCS.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
@@ -487,8 +601,25 @@ def load_documents() -> dict:
         if rel.startswith(prefix):
             rel = rel[len(prefix):]
         docs[rel] = d.get("text", "")
+        sid = d.get("snapshot_id")
+        if sid:
+            snapshot_ids.add(sid)
+    # 실제로 읽은 줄의 snapshot_id 를 쓴다. snapshot.json 에서 베껴 오면
+    # CORPUS_DOCS 만 바꿔도 라벨은 그대로여서 위키 출처가 거짓이 된다. (#23 리뷰)
+    if len(snapshot_ids) > 1:
+        raise SystemExit(
+            f"[오류] {CORPUS_DOCS} 안에 snapshot_id 가 {len(snapshot_ids)}종 섞여 있습니다: "
+            f"{sorted(snapshot_ids)}\n       한 코퍼스 스냅샷만으로 컴파일해야 합니다."
+        )
+    if not snapshot_ids:
+        raise SystemExit(
+            f"[오류] {CORPUS_DOCS} 줄에 snapshot_id 가 없습니다. "
+            "코퍼스를 build_tiers.py 로 다시 만들어야 합니다."
+        )
+    global CORPUS_SNAPSHOT_ID
+    CORPUS_SNAPSHOT_ID = next(iter(snapshot_ids))
     print(f"[정보] {CORPUS_DOCS} 에서 {len(docs)}개 문서를 읽음 "
-          f"(총 {sum(len(t) for t in docs.values()):,}자)")
+          f"(총 {sum(len(t) for t in docs.values()):,}자) / snapshot {CORPUS_SNAPSHOT_ID}")
     return docs
 
 
@@ -515,7 +646,7 @@ def discover_and_group():
     return entities
 
 
-def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str, corpus_snapshot: str | None = None) -> Path:
+def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str, attempt: int = 1) -> Path:
     out_path = target_wiki_path(entity)
 
     if dry_run:
@@ -530,7 +661,11 @@ def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str, corpus_snaps
         pieces.append((role, rel_path, text))
         source_paths.append(rel_path)
 
-    body, usage = call_llm(SYSTEM_PROMPT, build_user_prompt(entity.name, pieces))
+    body, usage = call_llm(SYSTEM_PROMPT, build_user_prompt(entity.name, pieces),
+                           entity_key=entity.key, attempt=attempt)
+    if not (body or "").strip():
+        # 본문이 비면 페이지를 쓰지 않는다. 호출은 이미 원장에 남았다.
+        raise TruncatedResponse("응답 본문이 비어 있습니다 — 페이지를 저장하지 않습니다.")
 
     frontmatter = (
         "---\n"
@@ -541,12 +676,14 @@ def compile_entity(entity: Entity, dry_run: bool, ssot_commit: str, corpus_snaps
         f"doc_type: {entity.kind}\n"
         f"compiled_by: {MODEL_PROVIDER}/{MODEL_NAME}\n"
         f"corpus_source: {CORPUS_DOCS.as_posix()}\n"
-        f"corpus_snapshot: {corpus_snapshot or 'UNKNOWN'}\n"
+        f"corpus_snapshot: {CORPUS_SNAPSHOT_ID}\n"
         "---\n\n"
     )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(frontmatter + body, encoding="utf-8")
-    print(f"[완료] {out_path}  (입력 {usage.get('input')} / 출력 {usage.get('output')} 토큰)")
+    print(f"[완료] {out_path}  (입력 {usage.get('uncached_input')} / "
+          f"캐시쓰기 {usage.get('cache_creation')} / 캐시읽기 {usage.get('cache_read')} / "
+          f"출력 {usage.get('output')})")
     return out_path, usage
 
 
@@ -582,7 +719,6 @@ def main():
 
     scope = load_scope()
     ssot_commit = scope.get("ssot_commit") or scope.get("repository", {}).get("commit_sha", "UNKNOWN")
-    corpus_snapshot = load_corpus_snapshot()
 
     entities = discover_and_group()
     if not entities:
@@ -604,9 +740,8 @@ def main():
     failed = []
     skipped = 0
     compiled = 0
-    # 위키 구축 비용 기록. 질의 단계 토큰과 합산하지 않고 따로 남긴다. (#23 3절)
-    build_tokens = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
-    per_entity = {}
+    # 이미 원장(build_calls.jsonl)에 몇 번 적혔는지 = 이 엔티티의 다음 시도 번호
+    prior_attempts = _count_prior_attempts()
 
     for key in keys:
         ent = entities[key]
@@ -620,70 +755,28 @@ def main():
             continue
 
         try:
-            _, usage = compile_entity(ent, dry_run=args.dry_run, ssot_commit=ssot_commit,
-                                      corpus_snapshot=corpus_snapshot)
+            compile_entity(ent, dry_run=args.dry_run, ssot_commit=ssot_commit,
+                           attempt=prior_attempts.get(key, 0) + 1)
             compiled += 1
-            if usage:
-                per_entity[key] = usage
-                for col in build_tokens:
-                    v = usage.get(col)
-                    if isinstance(v, int):
-                        build_tokens[col] += v
         except Exception as e:
-            # 한 엔티티가 (재시도까지 다 실패해서) 완전히 실패해도 전체를 멈추지 않고
-            # 나머지 엔티티는 계속 진행. 실패한 것만 나중에 --only로 다시 돌리면 됨.
+            # 한 엔티티가 완전히 실패해도 전체를 멈추지 않는다. 실패한 것만 --only 로 다시.
             print(f"[실패] {key}: {e.__class__.__name__}: {e}")
             failed.append(key)
+        finally:
+            # 엔티티마다 집계를 갱신한다. 중간에 Ctrl-C 가 나도 여기까지의 과금이 남는다.
+            if not args.dry_run:
+                write_build_tokens(ssot_commit)
 
     if args.dry_run:
         return
 
-    # ---- 토큰 기록: 덮어쓰지 않고 누적한다 (#23 1-3) ----
-    # 기본 동작이 "이미 만든 페이지 건너뛰기"라, 중단 후 이어서 돌리면 이번 실행은
-    # 남은 엔티티만 만든다. 파일을 통째로 새로 쓰면 앞선 실행에서 실제로 지불한 비용이 사라진다.
-    token_path = WIKI_ROOT / "build_tokens.json"
-    token_path.parent.mkdir(parents=True, exist_ok=True)
-    prev = {}
-    if token_path.exists():
-        try:
-            prev = json.loads(token_path.read_text(encoding="utf-8"))
-        except Exception as exc:  # noqa: BLE001
-            print(f"[경고] 기존 {token_path} 를 읽지 못해 새로 쓴다: {exc}")
-
-    merged_entities, totals = merge_build_tokens(prev.get("per_entity"), per_entity)
-
-    runs = list(prev.get("runs") or [])
-    runs.append({
-        "finished_at": datetime.now(timezone.utc).isoformat(),
-        "compiled_by": f"{MODEL_PROVIDER}/{MODEL_NAME}",
-        "corpus_source": CORPUS_DOCS.as_posix(),
-        "corpus_snapshot": corpus_snapshot,
-        "compiled_entities": compiled,
-        "skipped": skipped,
-        "failed": failed,
-        "this_run_tokens": build_tokens,
-    })
-
-    token_path.write_text(json.dumps({
-        "wiki_root": WIKI_ROOT.as_posix(),
-        "compiled_by": f"{MODEL_PROVIDER}/{MODEL_NAME}",
-        "corpus_source": CORPUS_DOCS.as_posix(),
-        "corpus_snapshot": corpus_snapshot,
-        "ssot_commit": ssot_commit,
-        "entities_recorded": len(merged_entities),
-        "input_semantics_note": (
-            "OpenAI prompt_tokens 는 캐시 포함, Anthropic input_tokens 는 캐시 제외. "
-            "엔티티별 input_semantics 를 볼 것. 네 칼럼을 합산하지 말 것."
-        ),
-        "totals": totals,
-        "per_entity": merged_entities,
-        "runs": runs,
-    }, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"[토큰] {token_path} — 엔티티 {len(merged_entities)}개 누적 / "
-          f"입력 {totals['input']:,} / 출력 {totals['output']:,} / "
-          f"캐시읽기 {totals['cache_read']:,} / 캐시쓰기 {totals['cache_creation']:,} (합산 금지)")
-    if compiled:
-        print(f"       이번 실행분 — 입력 {build_tokens['input']:,} / 출력 {build_tokens['output']:,}")
+    # ---- 토큰: 원장에서 집계 (호출 단위로 이미 적혀 있다) ----
+    bt = write_build_tokens(ssot_commit)
+    t = bt["totals"]
+    print(f"[토큰] {WIKI_ROOT / 'build_tokens.json'} — 호출 {bt['calls']}건 / "
+          f"입력(캐시제외) {t['uncached_input']:,} / 캐시쓰기 {t['cache_creation']:,} / "
+          f"캐시읽기 {t['cache_read']:,} / 출력 {t['output']:,}  (합산 금지)")
+    print(f"       원장: {build_calls_path()}")
 
     print(f"\n[요약] 컴파일 {compiled}개 / 건너뜀 {skipped}개 / 실패 {len(failed)}개")
     if failed:
