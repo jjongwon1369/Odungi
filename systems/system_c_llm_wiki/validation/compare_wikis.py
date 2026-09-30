@@ -115,7 +115,18 @@ def load(root: Path):
     return pages
 
 
+def _safe_console() -> None:
+    """Windows 기본 콘솔(cp949)에서 출력할 수 없는 문자가 있어도 멈추지 않게 한다.
+    담지 못하는 문자는 '?' 로 바뀐다. (#27 동수님 리뷰 P1-1)"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main():
+    _safe_console()
     roots = [Path(a) for a in sys.argv[1:]]
     if len(roots) < 2:
         sys.exit("위키 경로를 2개 이상 지정하세요.")

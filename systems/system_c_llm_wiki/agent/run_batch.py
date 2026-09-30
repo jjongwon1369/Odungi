@@ -32,7 +32,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from run_agent import run_agent, ABSTAIN_PHRASE, MAX_OUTPUT_TOKENS, _build_system_prompt, _load_models, reset_interval_wait, get_interval_wait_s
+from run_agent import run_agent, ABSTAIN_PHRASE, MAX_OUTPUT_TOKENS, _build_system_prompt, _load_models, reset_interval_wait, get_interval_wait_s, redact
 
 # ---------------------------------------------------------------------------
 # 상수
@@ -214,6 +214,67 @@ def _tool_defs_digest() -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def _safe_console() -> None:
+    """Windows 기본 콘솔(cp949)처럼 출력 인코딩이 모든 문자를 담지 못해도 멈추지 않게 한다.
+    담지 못하는 문자는 '?' 로 바뀐다. (#27 동수님 리뷰 P1-1)"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
+def _ensure_trailing_newline(path: Path) -> None:
+    """끝이 줄바꿈이 아닌(끊긴 마지막 줄이 있는) 파일에 이어 쓰기 전에 줄을 끊는다.
+    그러지 않으면 새 레코드가 끊긴 줄에 붙어 함께 깨진다. (#27 3차 리뷰)"""
+    try:
+        if path.exists() and path.stat().st_size > 0:
+            with open(path, "rb") as f:
+                f.seek(-1, os.SEEK_END)
+                if f.read(1) != b"\n":
+                    with open(path, "a", encoding="utf-8") as g:
+                        g.write("\n")
+    except OSError:
+        pass
+
+
+def _read_jsonl(path: Path):
+    """jsonl 의 줄마다 dict 를 돌려준다. 끊기거나 깨진 줄은 None.
+
+    바이트로 읽어 줄마다 따로 디코딩한다. 파일 전체를 한 번에 디코딩하면 한글 중간에서
+    끊긴 마지막 줄 하나 때문에 UnicodeDecodeError 로 전부 못 읽는다. "\\n" 으로만 나누므로
+    본문 속 U+2028 같은 문자에서 줄이 갈리지도 않는다. (#27 3차 리뷰)"""
+    if not path.exists():
+        return
+    for raw in path.read_bytes().split(b"\n"):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            rec = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            yield None
+            continue
+        yield rec if isinstance(rec, dict) else None
+
+
+def _latest_rows(path: Path, key_fn) -> dict:
+    """추가 전용 jsonl 에서 키마다 마지막 줄만 남긴다. 깨진 줄은 건너뛴다.
+
+    .partial 은 추가 전용이라, 다시 돌려 성공한 행 앞에 이전 오류 행이 그대로 남는다.
+    줄을 모두 세면 오류 행이 두 번 세지고 이어하기마다 다시 옮겨진다. (#27 3차 리뷰 3, 동수님 리뷰 P1-2)"""
+    latest: dict = {}
+    for rec in _read_jsonl(path):
+        if rec is None:
+            continue
+        try:
+            k = key_fn(rec)
+        except (KeyError, TypeError):
+            continue
+        latest[k] = rec
+    return latest
+
+
 def _record_key(rec: dict) -> tuple:
     # wiki_label 을 넣는다. 같은 질문·모델이라도 다른 위키로 돌린 건 다른 행이다. (#23 리뷰)
     return (rec.get("qid"), rec.get("model"), rec.get("run", 1), rec.get("wiki_label"))
@@ -245,15 +306,8 @@ def _upsert_answers(answers_path: Path, partial_dir: Path) -> tuple:
     def feed(path: Path, count_ops: bool) -> tuple:
         nonlocal skipped_broken
         rep = add = 0
-        if not path.exists():
-            return rep, add
-        for line in path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
+        for rec in _read_jsonl(path):
+            if rec is None:
                 skipped_broken += 1
                 continue
             op = put(rec)
@@ -265,12 +319,14 @@ def _upsert_answers(answers_path: Path, partial_dir: Path) -> tuple:
         return rep, add
 
     feed(answers_path, False)                     # 커밋돼 있는 줄 포함
-    kept_before = len(records)
-    replaced = added = 0
+    before = set(records)
+    touched: set = set()
     for partial_path in sorted(partial_dir.glob("*.jsonl")):
-        r, a = feed(partial_path, True)
-        replaced += r
-        added += a
+        touched |= set(_latest_rows(partial_path, _record_key))
+        feed(partial_path, True)
+    # 키 단위로 센다. 줄 단위로 세면 .partial 안의 재실행 줄 때문에 '유지'가 음수가 됐다.
+    replaced = len(touched & before)
+    added = len(touched - before)
 
     tmp = answers_path.with_suffix(".jsonl.tmp")
     with open(tmp, "w", encoding="utf-8") as f:
@@ -280,7 +336,7 @@ def _upsert_answers(answers_path: Path, partial_dir: Path) -> tuple:
     if skipped_broken:
         print(f"[경고] 깨진 줄 {skipped_broken}개를 건너뛰었다 (끊긴 마지막 줄 등)",
               file=sys.stderr)
-    return len(records), kept_before - replaced, replaced, added
+    return len(records), len(before - touched), replaced, added
 
 
 def _partition_partial(path: Path, cfg_hash: str) -> tuple:
@@ -288,17 +344,10 @@ def _partition_partial(path: Path, cfg_hash: str) -> tuple:
     keep: set = set()
     error_rows: list = []
     stale: dict = {}
-    if not path.exists():
-        return keep, error_rows, stale
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            r = json.loads(line)
-            key = (r["qid"], r["model"], r["run"])
-        except (json.JSONDecodeError, KeyError):
-            continue
+    # 키마다 마지막 줄만 본다. 다시 돌려 성공한 행 앞에 남은 이전 오류 행은 이미 처리됐다.
+    # 예전에는 모든 줄을 세서 같은 오류 행을 이어하기마다 다시 옮겼다. (#27 3차 리뷰 3)
+    latest = _latest_rows(path, lambda r: (r["qid"], r["model"], r["run"]))
+    for key, r in latest.items():
         row_cfg = r.get("config_hash")
         if cfg_hash and row_cfg and row_cfg != cfg_hash:
             stale[row_cfg] = stale.get(row_cfg, 0) + 1
@@ -310,38 +359,38 @@ def _partition_partial(path: Path, cfg_hash: str) -> tuple:
     return keep, error_rows, stale
 
 
+def _already_requeued(failed_attempts_path: Path) -> set:
+    """이미 failed_attempts.jsonl 로 옮긴 (qid, model, run, attempt_id)."""
+    done: set = set()
+    for r in _read_jsonl(failed_attempts_path):
+        if r is not None and r.get("attempt") == "resume-requeued":
+            done.add((r.get("qid"), r.get("model"), r.get("run"), r.get("attempt_id")))
+    return done
+
+
 def preflight_resume(partial_dir: Path, models: list, cfg_hash: str,
                      failed_attempts_path: Path,
-                     allow_config_change: bool) -> dict:
+                     allow_config_change: bool,
+                     scope_qids: set | None = None) -> dict:
     """첫 API 호출 전에 선택한 모든 모델의 partial 을 검사한다. (#23 리뷰)
 
     예전에는 이 검사가 모델 루프 안에 있어서, 뒤 모델에서 exit 3 이 나기 전에
     앞 모델들이 이미 과금되는 호출을 다 해버렸다.
     오류 행은 failed_attempts.jsonl 로 옮겨 과금 기록을 남기고 다시 돌린다.
+    (#27 3차 리뷰 3) 설정 불일치 검사를 기록보다 먼저 해서, exit 3 으로 멈출 때는 아무것도
+    쓰지 않는다. 이번에 실제로 다시 돌릴 문항(scope_qids)의 오류 행만 옮기고, 이미 옮긴
+    시도(같은 attempt_id)는 다시 옮기지 않는다. A 의 run_eval._prepare_resume 과 같은 방식이다.
     """
     plan: dict = {}
     stale_all: dict = {}
-    moved = 0
+    errors_by_model: dict = {}
     for model_name in models:
         path = partial_dir / f"{model_name}.jsonl"
         keep, error_rows, stale = _partition_partial(path, cfg_hash)
         plan[model_name] = keep
+        errors_by_model[model_name] = error_rows
         for h, n in stale.items():
             stale_all[h] = stale_all.get(h, 0) + n
-        if error_rows:
-            # 과금 기록을 버리지 않고 옮긴다
-            with open(failed_attempts_path, "a", encoding="utf-8") as f:
-                for r in error_rows:
-                    f.write(json.dumps({
-                        "attempt": "resume-requeued",
-                        "qid": r.get("qid"), "model": r.get("model"), "run": r.get("run"),
-                        "error": (r.get("error") or r.get("status") or "")[:500],
-                        "tokens": r.get("tokens"),
-                        "attempt_id": r.get("attempt_id"),
-                        "ts": time.time(),
-                    }, ensure_ascii=False) + "\n")
-            moved += len(error_rows)
-            print(f"  [재실행 예정] {model_name}: 오류 행 {len(error_rows)}개", file=sys.stderr)
 
     if stale_all:
         detail = ", ".join(f"{h}×{n}" for h, n in sorted(stale_all.items()))
@@ -356,6 +405,29 @@ def preflight_resume(partial_dir: Path, models: list, cfg_hash: str,
             print(msg, file=sys.stderr)
             raise SystemExit(3)
         print(msg + "\n        (--allow-config-change: 해당 행은 다시 돌린다)", file=sys.stderr)
+
+    already = _already_requeued(failed_attempts_path)
+    moved = 0
+    for model_name, error_rows in errors_by_model.items():
+        todo = [r for r in error_rows
+                if (scope_qids is None or r.get("qid") in scope_qids)
+                and (r.get("qid"), r.get("model"), r.get("run"), r.get("attempt_id")) not in already]
+        if not todo:
+            continue
+        # 과금 기록을 버리지 않고 옮긴다
+        _ensure_trailing_newline(failed_attempts_path)
+        with open(failed_attempts_path, "a", encoding="utf-8") as f:
+            for r in todo:
+                f.write(json.dumps({
+                    "attempt": "resume-requeued",
+                    "qid": r.get("qid"), "model": r.get("model"), "run": r.get("run"),
+                    "error": redact(r.get("error") or r.get("status") or "")[:500],
+                    "tokens": r.get("tokens"),
+                    "attempt_id": r.get("attempt_id"),
+                    "ts": time.time(),
+                }, ensure_ascii=False) + "\n")
+        moved += len(todo)
+        print(f"  [재실행 예정] {model_name}: 오류 행 {len(todo)}개", file=sys.stderr)
 
     total_done = sum(len(v) for v in plan.values())
     print(f"[이어하기] 완료 {total_done}건 / 오류 재실행 {moved}건", file=sys.stderr)
@@ -643,11 +715,8 @@ def run_batch(
         (run_dir / "invocations.jsonl").relative_to(Path("results") / "raw" / run_label)
     )
 
-    # ---- models.json 스냅샷 저장 ----
+    # ---- models.json 로드 (사본은 이어하기 검사를 통과한 뒤에 쓴다) ----
     models_db = _load_models()
-    (run_dir / "models.json").write_text(
-        json.dumps(models_db, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
 
     # ---- kimi-k3 먼저 ----
     ordered_models = _sort_models_kimi_first(models_list)
@@ -687,12 +756,21 @@ def run_batch(
 
     # ---- 첫 API 호출 전에 전 모델 이어하기 검사 ----
     resume_plan = preflight_resume(
-        partial_dir, ordered_models, cfg_hash, failed_attempts_path, allow_config_change
+        partial_dir, ordered_models, cfg_hash, failed_attempts_path, allow_config_change,
+        scope_qids={q["query_id"] for q in questions},
+    )
+
+    # ---- models.json 스냅샷 저장 ----
+    # 이어하기 검사가 exit 3 으로 멈추면 기존 사본을 덮어쓰지 않도록 검사 뒤로 옮겼다. (#27 3차 리뷰)
+    (run_dir / "models.json").write_text(
+        json.dumps(models_db, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
     summary_models: dict[str, dict] = {}
 
     # invocations / failed_attempts 파일 열기 (append 모드)
+    _ensure_trailing_newline(invocations_path)
+    _ensure_trailing_newline(failed_attempts_path)
     inv_f = open(invocations_path, "a", encoding="utf-8")
     fail_f = open(failed_attempts_path, "a", encoding="utf-8")
 
@@ -709,6 +787,7 @@ def run_batch(
                 file=sys.stderr,
             )
 
+            _ensure_trailing_newline(partial_path)
             with open(partial_path, "a", encoding="utf-8") as out_f:
                 for i, q in enumerate(questions, 1):
                     qid = q["query_id"]
@@ -741,7 +820,7 @@ def run_batch(
                             print(f"ERR({error[:60]})", file=sys.stderr)
                     except Exception as e:
                         q_status = "error"
-                        error = f"{e.__class__.__name__}: {e}"
+                        error = redact(f"{e.__class__.__name__}: {e}")
                         print(f"ERR({error[:60]})", file=sys.stderr)
                         # 재시도 기록뿐 아니라 최종 실패도 남긴다. (#23 3절)
                         result.setdefault("failed_attempts", []).append({
@@ -848,14 +927,14 @@ def run_batch(
 
     finished_at = datetime.now(timezone.utc).isoformat()
 
-    # ---- summary 통계: partial 파일 전체에서 재집계 (재개 실행 포함) ----
+    # ---- summary 통계: partial 파일에서 키마다 마지막 행으로 재집계 (재개 실행 포함) ----
+    # 줄을 모두 세면 다시 돌려 성공한 행과 이전 오류 행이 둘 다 세지고, 끊긴 마지막 줄 하나로
+    # 배치 전체가 마지막에 실패했다. answers.jsonl 과 같은 키로 최신 행만 센다. (#27 동수님 리뷰 P1-2)
     final_results: dict[str, dict] = {}
     for model_name in ordered_models:
         partial_path = partial_dir / f"{model_name}.jsonl"
         if partial_path.exists():
-            records = [
-                json.loads(l) for l in partial_path.read_text(encoding="utf-8").splitlines() if l.strip()
-            ]
+            records = list(_latest_rows(partial_path, _record_key).values())
             final_results[model_name] = {
                 "ok": sum(1 for r in records if not r.get("error")),
                 "err": sum(1 for r in records if r.get("error")),
@@ -960,6 +1039,7 @@ def _write_readme(base_dir: Path, summary: dict, models_db: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def main():
+    _safe_console()
     parser = argparse.ArgumentParser(description="LLM Wiki 배치 평가 러너")
     parser.add_argument(
         "--models", default="all",

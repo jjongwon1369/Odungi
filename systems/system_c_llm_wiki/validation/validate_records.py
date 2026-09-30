@@ -138,7 +138,18 @@ def _cols_from_raw(raw: dict | None) -> dict | None:
     }
 
 
+def _safe_console() -> None:
+    """Windows 기본 콘솔(cp949)에서 출력할 수 없는 문자가 있어도 멈추지 않게 한다.
+    담지 못하는 문자는 '?' 로 바뀐다. (#27 동수님 리뷰 P1-1)"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main() -> int:
+    _safe_console()
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("base_dir", help="results/raw/<실험명>/system_x")
@@ -176,7 +187,7 @@ def main() -> int:
 
     # ---------- 1. 스키마 ----------
     raw_rows = _read_jsonl(answers)
-    parse_errors = [f"{i}행: JSON 파싱 실패 — {r['__parse_error__']}"
+    parse_errors = [f"{i}행: JSON 파싱 실패 - {r['__parse_error__']}"
                     for i, r in raw_rows if "__parse_error__" in r]
     rows = [(i, r) for i, r in raw_rows if "__parse_error__" not in r]
     print(f"레코드 {len(rows)}줄  ({answers})")
@@ -207,7 +218,7 @@ def main() -> int:
     else:
         rep.ok("(qid, model, run) 중복 없음")
 
-    # 기대 격자 — 파일 내용이 아니라 밖에서 받는다
+    # 기대 격자 - 파일 내용이 아니라 밖에서 받는다
     if args.models:
         exp_models = [m.strip() for m in args.models.split(",") if m.strip()]
         src_m = "--models"
@@ -216,7 +227,7 @@ def main() -> int:
         src_m = args.models_json
     elif args.infer_grid_from_file:
         exp_models = sorted({r.get("model") for r in recs})
-        src_m = "(파일 내용에서 추론 — 모델 통째 누락은 못 잡는다)"
+        src_m = "(파일 내용에서 추론 - 모델 통째 누락은 못 잡는다)"
     else:
         print("[실패] 기대 모델 목록이 없습니다. --models-json 또는 --models 를 주세요.\n"
               "       (확인용으로 파일 내용에서 역산하려면 --infer-grid-from-file)")
@@ -229,7 +240,7 @@ def main() -> int:
         src_q = args.questions
     elif args.infer_grid_from_file:
         exp_qids = sorted({r.get("qid") for r in recs})
-        src_q = "(파일 내용에서 추론 — 문항 통째 누락은 못 잡는다)"
+        src_q = "(파일 내용에서 추론 - 문항 통째 누락은 못 잡는다)"
     else:
         print("[실패] 기대 문항 파일이 없습니다. --questions 를 주세요.\n"
               "       (확인용으로 파일 내용에서 역산하려면 --infer-grid-from-file)")
@@ -260,7 +271,7 @@ def main() -> int:
     err_keys = {_key(r) for r in err_rows}
     good = [r for r in recs if _key(r) not in err_keys]
     if err_rows:
-        rep.bad(f"오류 행 {len(err_rows)}건 — 재실행 필요",
+        rep.bad(f"오류 행 {len(err_rows)}건 - 재실행 필요",
                 [f"{_key(r)}: {str(r.get('error'))[:80]}" for r in err_rows])
     else:
         rep.ok("오류 행 없음")
@@ -299,7 +310,7 @@ def main() -> int:
         covered = sum(1 for r in good if _key(r)[:3] in turn_sum)
         if covered == 0:
             rep.skip(f"이 폴더의 호출 기록이 답변 행을 덮지 않아 토큰 대조 불가 "
-                     f"(0/{len(good)}행) — System A/B 는 해당 없음")
+                     f"(0/{len(good)}행) - System A/B 는 해당 없음")
         else:
             if covered < len(good):
                 rep.note(f"호출기록이 {covered}/{len(good)}행만 덮는다")
@@ -322,11 +333,11 @@ def main() -> int:
             label = f"토큰 입력 합 == 턴별 prompt_tokens 합 (대조 {covered}/{len(good)}행)"
             if mismatch:
                 if args.no_strict_tokens:
-                    rep.note(f"{label} — 불일치 {len(mismatch)}건 (경고 모드)")
+                    rep.note(f"{label} - 불일치 {len(mismatch)}건 (경고 모드)")
                     for m in mismatch[:5]:
                         print(f"    {m}")
                 else:
-                    rep.bad(f"{label} — 불일치 {len(mismatch)}건", mismatch)
+                    rep.bad(f"{label} - 불일치 {len(mismatch)}건", mismatch)
             else:
                 rep.ok(label)
 
@@ -335,11 +346,11 @@ def main() -> int:
                 if raw_mismatch:
                     # 경고 모드에서도 반드시 보여준다. 예전에는 아무것도 안 나왔다. (#23 리뷰)
                     if args.no_strict_tokens:
-                        rep.note(f"{lab2} — 불일치 {len(raw_mismatch)}건 (경고 모드)")
+                        rep.note(f"{lab2} - 불일치 {len(raw_mismatch)}건 (경고 모드)")
                         for m in raw_mismatch[:10]:
                             print(f"    {m}")
                     else:
-                        rep.bad(f"{lab2} — 불일치 {len(raw_mismatch)}건", raw_mismatch)
+                        rep.bad(f"{lab2} - 불일치 {len(raw_mismatch)}건", raw_mismatch)
                 else:
                     rep.ok(lab2)
             else:
@@ -389,7 +400,7 @@ def main() -> int:
                     not_applied)
         else:
             efforts = Counter(r.get("reasoning_effort") for r in good)
-            rep.ok(f"추론 강도 전 행 적용 — {dict(efforts)}")
+            rep.ok(f"추론 강도 전 행 적용 - {dict(efforts)}")
     else:
         rep.skip("reasoning_applied 필드 없음 (System A/B)")
 
@@ -401,7 +412,7 @@ def main() -> int:
                 and "확인되지 않" in (r.get("answer") or "")]
         print(f"기권 {n_ab}건 (문구: {ABSTAIN_PHRASE!r})")
         if near:
-            rep.note(f"문구가 미묘하게 다른 기권 후보 {len(near)}건 — 직접 확인할 것")
+            rep.note(f"문구가 미묘하게 다른 기권 후보 {len(near)}건 - 직접 확인할 것")
             for m in near[:5]:
                 print(f"    {m}")
 
@@ -410,13 +421,13 @@ def main() -> int:
         rep.bad(f"config_hash 가 {len(cfgs)}종 섞여 있다",
                 [f"{h}: {n}행" for h, n in cfgs.most_common()])
     else:
-        rep.ok(f"config_hash 단일 — {next(iter(cfgs), None)}")
+        rep.ok(f"config_hash 단일 - {next(iter(cfgs), None)}")
 
     if any("status" in r for r in recs):
         print("status:", dict(Counter(r.get("status") for r in recs)))
 
     print()
-    print("=== 결과: " + ("실패 — 위 항목을 고칠 것" if rep.failed else "전 항목 통과") + " ===")
+    print("=== 결과: " + ("실패 - 위 항목을 고칠 것" if rep.failed else "전 항목 통과") + " ===")
     return 1 if rep.failed else 0
 
 

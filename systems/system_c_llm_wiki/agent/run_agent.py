@@ -44,6 +44,21 @@ def get_interval_wait_s() -> float:
     return _interval_wait_s
 
 
+# 오류 문구 속 키 조각·계정 식별자 가림. System A 의 run_eval._redact 와 같은 규칙이다.
+# failed_attempts.jsonl·answers.jsonl 은 git 에 올라가는데, 제공자 오류 문구에는
+# 조직 ID(org-…)나 키 조각(sk-…, ak-…)이 들어오기도 한다(9/28 Kimi 429). (#27 3차 리뷰 4)
+_KEY_LIKE = re.compile(r"\b(sk|ak|org)-[A-Za-z0-9_\-*.]{4,}")
+
+
+def redact(text) -> str:
+    return _KEY_LIKE.sub(lambda m: f"{m.group(1)}-[가림]", str(text))
+
+
+def _error_text(exc: Exception) -> str:
+    """예외를 기록용 문구로 바꾼다(가림 적용)."""
+    return redact(f"{exc.__class__.__name__}: {exc}")
+
+
 # ---------------------------------------------------------------------------
 # models.json 로딩
 # ---------------------------------------------------------------------------
@@ -170,7 +185,7 @@ def _call_api(call_fn, model_name: str, min_interval_s: float, max_retries: int 
                 wait_s = 5 * (2 ** attempt)  # 5, 10, 20, 40, 80 s
                 failed.append({
                     "attempt": attempt + 1,
-                    "error": str(e)[:300],
+                    "error": redact(str(e))[:300],
                     "wait_s": wait_s,
                     "ts": time.time(),
                 })
@@ -392,8 +407,21 @@ def _tokens_anthropic(usage) -> dict:
     }
 
 
-# 응답이 온전하지 않은 종료 사유. 이 상태로 끝난 턴의 본문은 답으로 쓰지 않는다.
-# 도구 호출이 있었던 턴은 정상이다(대화가 계속되는 중). (#23 리뷰)
+# 온전히 끝난 종료 사유. 이 밖의 사유는 모두 잘림·차단·거절로 보고 그 턴에서 멈춘다.
+# A 의 GenerationError 처럼 허용 목록으로 판정한다(막을 사유만 나열하면
+# model_context_window_exceeded, max_messages, failed 같은 사유가 빠진다). (#27 3차 리뷰 1)
+# 도구를 부르는 정상 턴도 tool_calls(Chat) / tool_use(Anthropic) / completed(Responses) 로 끝난다.
+NORMAL_STOP_REASONS = {
+    "stop",            # Chat Completions: 본문으로 끝남
+    "tool_calls",      # Chat Completions: 도구 호출
+    "function_call",   # Chat Completions: 예전 이름
+    "completed",       # Responses: status
+    "end_turn",        # Anthropic
+    "stop_sequence",   # Anthropic
+    "tool_use",        # Anthropic: 도구 호출
+}
+
+# 대표적인 잘림·차단·거절 사유(설명과 테스트용). 판정은 NORMAL_STOP_REASONS 로 한다.
 HARD_STOP_REASONS = {
     "length",              # Chat Completions: 출력 상한
     "content_filter",      # Chat Completions: 차단
@@ -404,23 +432,18 @@ HARD_STOP_REASONS = {
 }
 
 
-class AgentRunError(RuntimeError):
-    """실행을 중단시키는 오류. 그때까지의 과금·턴 기록을 함께 들고 올라간다.
+def _hard_stop(finish_reason, had_tool_calls: bool = False):
+    """온전하지 않은 종료면 그 사유를 돌려준다. 아니면 None.
 
-    A 의 GenerationError 와 같은 역할. 예외만 던지면 앞 턴의 과금 토큰과
-    invocations 줄이 사라진다. (#23 리뷰)
+    도구 호출 여부와 관계없이 종료 사유로만 판단한다. 도구 인자를 쓰다가 출력 상한에
+    걸리면 length(Chat), max_output_tokens(Responses), max_tokens(Anthropic)로 오기
+    때문이다. 호출하는 쪽은 도구 인자를 읽기 전에 이 판정을 한다. (#27 3차 리뷰 1)
+    finish_reason 이 None(제공자가 보고하지 않음)이면 판단할 수 없어 정상으로 둔다.
+    had_tool_calls 는 예전 호출 형태를 위해 남겨 둔 인자이고 판정에 쓰지 않는다.
     """
-
-    def __init__(self, message: str, partial: dict | None = None):
-        super().__init__(message)
-        self.partial = partial or {}
-
-
-def _hard_stop(finish_reason, had_tool_calls: bool):
-    """온전하지 않은 종료면 그 사유를 돌려준다. 아니면 None."""
-    if had_tool_calls:
+    if finish_reason is None or finish_reason in NORMAL_STOP_REASONS:
         return None
-    return finish_reason if finish_reason in HARD_STOP_REASONS else None
+    return finish_reason
 
 
 def _turn_meta(response) -> dict:
@@ -583,84 +606,102 @@ def _run_openai_responses(query, model_cfg, sys_prompt, toc_text, page_index, ma
             )
             all_failed.extend(failed)
         except Exception as exc:  # noqa: BLE001
+            err = _error_text(exc)
             all_failed.append({
                 "attempt": f"turn{turn}-final",
-                "error": f"{exc.__class__.__name__}: {exc}"[:500],
+                "error": err[:500],
                 "wait_s": 0,
                 "ts": time.time(),
             })
             status = "error"
-            stop_error = f"{exc.__class__.__name__}: {exc}"
+            stop_error = err
             break
 
         usage = _tokens_responses(getattr(response, "usage", None))
         total_usage = _sum_tokens(total_usage, usage)
+        meta = _turn_meta(response)
 
         turn_calls: list[dict] = []
         final_answer_found = False
 
-        for item in response.output:
-            item_type = getattr(item, "type", "")
-            if item_type == "function_call":
-                fn_name = item.name
-                fn_args = json.loads(item.arguments)
-                if verbose:
-                    print(f"  → {fn_name}({fn_args})", file=sys.stderr)
+        # 출력 상한·차단·거절로 끝난 턴은 도구 인자를 읽기 전에 멈춘다. 잘린 인자를 읽다가
+        # 예외가 나거나 잘린 본문이 답이 되지 않게 하고, 같은 대화로 다시 부르지도 않는다
+        # (같은 사유로 또 잘리고 과금만 늘어난다). 이 턴의 과금분은 turn_details 에 남는다. (#27 3차 리뷰 1)
+        stop = _hard_stop(meta.get("finish_reason"))
+        if stop:
+            turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
+            status = "error"
+            stop_error = f"응답이 온전하지 않음 (finish_reason={stop})"
+            break
 
-                result_text, is_final, ans, cited, sha256 = _execute_tool(
-                    fn_name, fn_args, toc_text, page_index,
-                    retrieved_pages, page_evidence, turn,
-                )
-                if is_final:
-                    answer = ans
-                    cited_pages = cited
-                    final_answer_found = True
-                    submitted = True
+        try:
+            for item in response.output:
+                item_type = getattr(item, "type", "")
+                if item_type == "function_call":
+                    fn_name = item.name
+                    fn_args = json.loads(item.arguments)
+                    if verbose:
+                        print(f"  → {fn_name}({fn_args})", file=sys.stderr)
 
-                turn_calls.append({
-                    "tool": fn_name,
-                    "args": fn_args,
-                    "result_len": len(result_text),
-                    "sha256": sha256,
-                })
-
-                input_items.append({
-                    "type": "function_call",
-                    "call_id": item.call_id,
-                    "name": item.name,
-                    "arguments": item.arguments,
-                })
-                input_items.append({
-                    "type": "function_call_output",
-                    "call_id": item.call_id,
-                    "output": result_text,
-                })
-
-            elif item_type == "message":
-                for block in getattr(item, "content", []):
-                    if getattr(block, "type", "") == "refusal":
-                        # 거절은 답이 아니다. 잘림과 같은 기준으로 오류로 남긴다. (#23 리뷰)
-                        refused = getattr(block, "refusal", None) or "refusal"
-                        status = "error"
-                        stop_error = f"모델이 거절함: {str(refused)[:200]}"
+                    result_text, is_final, ans, cited, sha256 = _execute_tool(
+                        fn_name, fn_args, toc_text, page_index,
+                        retrieved_pages, page_evidence, turn,
+                    )
+                    if is_final:
+                        answer = ans
+                        cited_pages = cited
                         final_answer_found = True
-                    elif hasattr(block, "text"):
-                        answer = block.text
-                        final_answer_found = True
+                        submitted = True
+
+                    turn_calls.append({
+                        "tool": fn_name,
+                        "args": fn_args,
+                        "result_len": len(result_text),
+                        "sha256": sha256,
+                    })
+
+                    input_items.append({
+                        "type": "function_call",
+                        "call_id": item.call_id,
+                        "name": item.name,
+                        "arguments": item.arguments,
+                    })
+                    input_items.append({
+                        "type": "function_call_output",
+                        "call_id": item.call_id,
+                        "output": result_text,
+                    })
+
+                elif item_type == "message":
+                    for block in getattr(item, "content", []):
+                        if getattr(block, "type", "") == "refusal":
+                            # 거절은 답이 아니다. 잘림과 같은 기준으로 오류로 남긴다. (#23 리뷰)
+                            refused = getattr(block, "refusal", None) or "refusal"
+                            status = "error"
+                            stop_error = f"모델이 거절함: {str(refused)[:200]}"
+                            final_answer_found = True
+                        elif hasattr(block, "text"):
+                            answer = block.text
+                            final_answer_found = True
+        except Exception as exc:  # noqa: BLE001
+            # 응답을 받은 뒤의 처리(도구 인자 파싱·도구 실행)에서 예외가 나도 앞 턴까지의
+            # 과금 토큰과 기록을 남긴 채 끊는다. 예전에는 run_batch 까지 올라가 전부 0 이 됐다. (#27 3차 리뷰 2)
+            err = _error_text(exc)
+            turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
+            all_failed.append({
+                "attempt": f"turn{turn}-after-response",
+                "error": err[:500],
+                "wait_s": 0,
+                "ts": time.time(),
+            })
+            status = "error"
+            stop_error = err
+            break
 
         if not turn_calls and not final_answer_found:
             final_answer_found = True
 
-        meta = _turn_meta(response)
         turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
-
-        # 출력 상한·차단·거절로 끝난 턴은 답으로 쓰지 않는다. 같은 대화로 다시
-        # 부르지도 않는다(같은 사유로 또 잘리고 과금만 늘어난다). (#23 리뷰)
-        stop = _hard_stop(meta.get("finish_reason"), bool(turn_calls))
-        if stop:
-            status = "error"
-            stop_error = f"응답이 온전하지 않음 (finish_reason={stop})"
-            break
 
         if verbose:
             print(
@@ -745,63 +786,89 @@ def _run_openai_chat(query, model_cfg, sys_prompt, toc_text, page_index, max_tur
             )
             all_failed.extend(failed)
         except Exception as exc:  # noqa: BLE001
+            err = _error_text(exc)
             all_failed.append({
                 "attempt": f"turn{turn}-final",
-                "error": f"{exc.__class__.__name__}: {exc}"[:500],
+                "error": err[:500],
                 "wait_s": 0,
                 "ts": time.time(),
             })
             status = "error"
-            stop_error = f"{exc.__class__.__name__}: {exc}"
+            stop_error = err
             break
 
-        msg = response.choices[0].message
         usage = _tokens_chat(getattr(response, "usage", None))
         total_usage = _sum_tokens(total_usage, usage)
+        meta = _turn_meta(response)
 
         turn_calls: list[dict] = []
         final_answer_found = False
 
-        if msg.tool_calls:
-            messages.append(msg)
-            for tc in msg.tool_calls:
-                fn_name = tc.function.name
-                fn_args = json.loads(tc.function.arguments)
-                if verbose:
-                    print(f"  → {fn_name}({fn_args})", file=sys.stderr)
+        # choices 가 빈 응답이면 과금분을 남긴 채 끊는다. 예전에는 여기서 IndexError 가 나서
+        # 앞 턴까지의 기록이 사라졌다. (#27 3차 리뷰 2)
+        if not getattr(response, "choices", None):
+            turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
+            status = "error"
+            stop_error = "응답에 choices 가 없음"
+            break
 
-                result_text, is_final, ans, cited, sha256 = _execute_tool(
-                    fn_name, fn_args, toc_text, page_index,
-                    retrieved_pages, page_evidence, turn,
-                )
-                if is_final:
-                    answer = ans
-                    cited_pages = cited
-                    final_answer_found = True
-                    submitted = True
-
-                turn_calls.append({
-                    "tool": fn_name,
-                    "args": fn_args,
-                    "result_len": len(result_text),
-                    "sha256": sha256,
-                })
-
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": result_text})
-        else:
-            answer = msg.content or ""
-            final_answer_found = True
-
-        meta = _turn_meta(response)
-        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
-
-        # 출력 상한·차단·거절로 끝난 턴은 답으로 쓰지 않는다. 같은 대화로 다시
-        # 부르지도 않는다(같은 사유로 또 잘리고 과금만 늘어난다). (#23 리뷰)
-        stop = _hard_stop(meta.get("finish_reason"), bool(turn_calls))
+        # 출력 상한·차단·거절로 끝난 턴은 도구 인자를 읽기 전에 멈춘다. 잘린 인자를 읽다가
+        # 예외가 나거나 잘린 본문이 답이 되지 않게 하고, 같은 대화로 다시 부르지도 않는다
+        # (같은 사유로 또 잘리고 과금만 늘어난다). 이 턴의 과금분은 turn_details 에 남는다. (#27 3차 리뷰 1)
+        stop = _hard_stop(meta.get("finish_reason"))
         if stop:
+            turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
             status = "error"
             stop_error = f"응답이 온전하지 않음 (finish_reason={stop})"
             break
+
+        try:
+            msg = response.choices[0].message
+            if msg.tool_calls:
+                messages.append(msg)
+                for tc in msg.tool_calls:
+                    fn_name = tc.function.name
+                    fn_args = json.loads(tc.function.arguments)
+                    if verbose:
+                        print(f"  → {fn_name}({fn_args})", file=sys.stderr)
+
+                    result_text, is_final, ans, cited, sha256 = _execute_tool(
+                        fn_name, fn_args, toc_text, page_index,
+                        retrieved_pages, page_evidence, turn,
+                    )
+                    if is_final:
+                        answer = ans
+                        cited_pages = cited
+                        final_answer_found = True
+                        submitted = True
+
+                    turn_calls.append({
+                        "tool": fn_name,
+                        "args": fn_args,
+                        "result_len": len(result_text),
+                        "sha256": sha256,
+                    })
+
+                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result_text})
+            else:
+                answer = msg.content or ""
+                final_answer_found = True
+        except Exception as exc:  # noqa: BLE001
+            # 응답을 받은 뒤의 처리(도구 인자 파싱·도구 실행)에서 예외가 나도 앞 턴까지의
+            # 과금 토큰과 기록을 남긴 채 끊는다. 예전에는 run_batch 까지 올라가 전부 0 이 됐다. (#27 3차 리뷰 2)
+            err = _error_text(exc)
+            turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
+            all_failed.append({
+                "attempt": f"turn{turn}-after-response",
+                "error": err[:500],
+                "wait_s": 0,
+                "ts": time.time(),
+            })
+            status = "error"
+            stop_error = err
+            break
+
+        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
 
         if verbose:
             print(
@@ -882,75 +949,95 @@ def _run_anthropic(query, model_cfg, sys_prompt, toc_text, page_index, max_turns
             )
             all_failed.extend(failed)
         except Exception as exc:  # noqa: BLE001
+            err = _error_text(exc)
             all_failed.append({
                 "attempt": f"turn{turn}-final",
-                "error": f"{exc.__class__.__name__}: {exc}"[:500],
+                "error": err[:500],
                 "wait_s": 0,
                 "ts": time.time(),
             })
             status = "error"
-            stop_error = f"{exc.__class__.__name__}: {exc}"
+            stop_error = err
             break
 
         usage = _tokens_anthropic(getattr(response, "usage", None))
         total_usage = _sum_tokens(total_usage, usage)
-
-        # thinking 블록 포함한 전체 content 보존
-        messages.append({"role": "assistant", "content": response.content})
+        meta = _turn_meta(response)
 
         turn_calls: list[dict] = []
         tool_results: list = []
         final_answer_found = False
 
-        for block in response.content:
-            block_type = getattr(block, "type", "")
-            if block_type == "tool_use":
-                fn_name = block.name
-                fn_args = block.input
-                if verbose:
-                    print(f"  → {fn_name}({fn_args})", file=sys.stderr)
-
-                result_text, is_final, ans, cited, sha256 = _execute_tool(
-                    fn_name, fn_args, toc_text, page_index,
-                    retrieved_pages, page_evidence, turn,
-                )
-                if is_final:
-                    answer = ans
-                    cited_pages = cited
-                    final_answer_found = True
-                    submitted = True
-
-                turn_calls.append({
-                    "tool": fn_name,
-                    "args": fn_args,
-                    "result_len": len(result_text),
-                    "sha256": sha256,
-                })
-
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result_text,
-                })
-            elif block_type == "text":
-                if block.text:
-                    answer = block.text
-
-        if tool_results:
-            messages.append({"role": "user", "content": tool_results})
-        elif response.stop_reason == "end_turn":
-            final_answer_found = True
-
-        meta = _turn_meta(response)
-        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
-
-        # 출력 상한·차단·거절로 끝난 턴은 답으로 쓰지 않는다. 같은 대화로 다시
-        # 부르지도 않는다(같은 사유로 또 잘리고 과금만 늘어난다). (#23 리뷰)
-        stop = _hard_stop(meta.get("finish_reason"), bool(turn_calls))
+        # 출력 상한·차단·거절로 끝난 턴은 도구 인자를 읽기 전에 멈춘다. 잘린 인자를 읽다가
+        # 예외가 나거나 잘린 본문이 답이 되지 않게 하고, 같은 대화로 다시 부르지도 않는다
+        # (같은 사유로 또 잘리고 과금만 늘어난다). 이 턴의 과금분은 turn_details 에 남는다. (#27 3차 리뷰 1)
+        stop = _hard_stop(meta.get("finish_reason"))
         if stop:
+            turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
             status = "error"
             stop_error = f"응답이 온전하지 않음 (finish_reason={stop})"
             break
+
+        try:
+            # thinking 블록 포함한 전체 content 보존. content 가 없는 응답(프록시가 돌려준
+            # HTML 등)도 아래 except 로 보내려고 try 안에 둔다.
+            messages.append({"role": "assistant", "content": response.content})
+            for block in response.content:
+                block_type = getattr(block, "type", "")
+                if block_type == "tool_use":
+                    fn_name = block.name
+                    fn_args = block.input
+                    if verbose:
+                        print(f"  → {fn_name}({fn_args})", file=sys.stderr)
+
+                    result_text, is_final, ans, cited, sha256 = _execute_tool(
+                        fn_name, fn_args, toc_text, page_index,
+                        retrieved_pages, page_evidence, turn,
+                    )
+                    if is_final:
+                        answer = ans
+                        cited_pages = cited
+                        final_answer_found = True
+                        submitted = True
+
+                    turn_calls.append({
+                        "tool": fn_name,
+                        "args": fn_args,
+                        "result_len": len(result_text),
+                        "sha256": sha256,
+                    })
+
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result_text,
+                    })
+                elif block_type == "text":
+                    if block.text:
+                        answer = block.text
+        except Exception as exc:  # noqa: BLE001
+            # 응답을 받은 뒤의 처리(도구 인자 파싱·도구 실행)에서 예외가 나도 앞 턴까지의
+            # 과금 토큰과 기록을 남긴 채 끊는다. 예전에는 run_batch 까지 올라가 전부 0 이 됐다. (#27 3차 리뷰 2)
+            err = _error_text(exc)
+            turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
+            all_failed.append({
+                "attempt": f"turn{turn}-after-response",
+                "error": err[:500],
+                "wait_s": 0,
+                "ts": time.time(),
+            })
+            status = "error"
+            stop_error = err
+            break
+
+        if tool_results:
+            messages.append({"role": "user", "content": tool_results})
+        else:
+            # 판정을 통과했고 도구 호출이 없으면 end_turn·stop_sequence 로 끝난 것이다.
+            # 예전에는 end_turn 만 끝으로 봐서, stop_sequence 면 같은 대화로 다시 불렀다.
+            final_answer_found = True
+
+        turn_details.append({"turn": turn, "calls": turn_calls, **usage, **meta})
 
         if verbose:
             print(
@@ -1028,7 +1115,18 @@ def run_agent(
 # CLI
 # ---------------------------------------------------------------------------
 
+def _safe_console() -> None:
+    """Windows 기본 콘솔(cp949)처럼 출력 인코딩이 모든 문자를 담지 못해도 멈추지 않게 한다.
+    담지 못하는 문자는 '?' 로 바뀐다. (#27 동수님 리뷰 P1-1)"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main():
+    _safe_console()
     parser = argparse.ArgumentParser(description="LLM Wiki 에이전트 — 위키 탐색 기반 질의응답")
     parser.add_argument("--query", required=True)
     parser.add_argument("--model", default=None)

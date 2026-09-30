@@ -2,7 +2,7 @@
 """잘림·거절 판정 테스트. (#23 리뷰 2번)
 
 가짜 응답 객체로 세 provider 형태를 만들어, 온전하지 않은 종료가
-status='error' 로 남고 도구 호출 턴은 정상으로 남는지 본다.
+status='error' 로 남는지 본다. 도구를 부른 턴이라도 잘렸으면 오류다. (#27 3차 리뷰 1)
 """
 from __future__ import annotations
 
@@ -61,11 +61,20 @@ def test_anthropic_max_tokens_and_refusal_are_errors():
     print("  ✓ Anthropic max_tokens·refusal → 오류 / end_turn·tool_use → 정상")
 
 
-def test_tool_call_turn_is_never_a_hard_stop():
-    """도구를 부른 턴은 대화가 이어지는 중이므로 어떤 사유든 정상."""
+def test_truncated_tool_call_turn_is_an_error():
+    """도구 인자를 쓰다가 출력 상한에 걸려도 오류다. 도구 호출 여부로 봐주지 않는다. (#27 3차 리뷰 1)"""
     for fr in sorted(HARD_STOP_REASONS):
+        assert _hard_stop(fr, True) == fr, fr
+    for fr in ("tool_calls", "tool_use", "completed"):
         assert _hard_stop(fr, True) is None, fr
-    print("  ✓ 도구 호출 턴은 항상 정상")
+    print("  ✓ 도구 호출 턴도 잘리면 오류 / tool_calls·tool_use·completed 는 정상")
+
+
+def test_unlisted_reasons_are_errors():
+    """허용 목록 밖의 사유는 모두 오류. 막을 사유만 나열하면 이런 사유가 빠진다."""
+    for fr in ("model_context_window_exceeded", "max_messages", "failed", "pause_turn"):
+        assert _hard_stop(fr, False) == fr, fr
+    print("  ✓ 목록에 없는 사유(model_context_window_exceeded 등) → 오류")
 
 
 if __name__ == "__main__":
