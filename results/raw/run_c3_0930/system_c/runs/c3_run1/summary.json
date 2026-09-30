@@ -1,0 +1,80 @@
+{
+  "run_label": "run_c3_0930",
+  "wiki_label": "c3",
+  "wiki_build": "openai/gpt-6-astra",
+  "wiki_root": "systems/system_c_llm_wiki/wiki-c3",
+  "ssot_commit": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+  "corpus_snapshot": "corpus-c3:2f00a8077e434eb6657fb661112012abeceba70c0d1e0633e73f6b7b9c7afb8e",
+  "corpus_version": "0.1-c3",
+  "wiki_corpus_source": "corpus/tiers/c3/processed/documents.jsonl",
+  "wiki_corpus_snapshot": "corpus-c3:2f00a8077e434eb6657fb661112012abeceba70c0d1e0633e73f6b7b9c7afb8e",
+  "questions_sha256": "9be6a33eb122d892ee8f6f6fb0ddfd1b40f1bda8ebedbe36e6d199a3105389a2",
+  "reasoning_effort": "light",
+  "models": [
+    "kimi-k3",
+    "gpt-6-luna",
+    "gpt-6-sol",
+    "gpt-5.6-sol",
+    "claude-sonnet-5",
+    "claude-opus-5-5",
+    "deepseek-flash"
+  ],
+  "results": {
+    "kimi-k3": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": 2532.5
+    },
+    "gpt-6-luna": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": 229.2
+    },
+    "gpt-6-sol": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": 249.9
+    },
+    "gpt-5.6-sol": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": 274.7
+    },
+    "claude-sonnet-5": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": 389.7
+    },
+    "claude-opus-5-5": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": 458.3
+    },
+    "deepseek-flash": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": 210.7
+    }
+  },
+  "max_turns": 30,
+  "agent_commit": "4652547",
+  "started_at": "2026-09-30T08:42:33.332905+00:00",
+  "finished_at": "2026-09-30T09:54:58.248151+00:00",
+  "total_records": 280,
+  "documents_sha256": "71c40454c6695fc6fd13aade191e1a21dfd11e5311def31f1f07adddf1618359",
+  "wiki_manifest_pages": 34,
+  "sdk_versions": {
+    "python": "3.14.3",
+    "openai": "3.19.0",
+    "anthropic": "1.9.0",
+    "httpx": "0.28.1",
+    "httpx2": "2.13.0"
+  }
+}
