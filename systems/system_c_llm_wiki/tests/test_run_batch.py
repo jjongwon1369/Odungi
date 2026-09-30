@@ -262,15 +262,23 @@ def _run_batch_env(tmp: Path):
         qid = {"질문1": "Q1", "질문2": "Q2"}[query]
         calls.append(qid)
         status = outcomes[qid].pop(0)
-        retry = status == "ok+retry"          # 429 재시도 기록이 붙은 정상 응답
+        if status == "interrupt":             # 배치가 문항 도중에 멈춘 경우
+            raise KeyboardInterrupt
+        retry = status == "ok+retry"          # 재시도 기록이 붙은 정상 응답
         status = "ok" if retry else status
-        return {"status": status, "answer": "답" if status == "ok" else "",
+        answer = {"ok": "답", "empty": "", "max_turns": "먼저 목차를 보겠습니다.",
+                  "dangling": "답"}.get(status, "")
+        read = ["clusters/a", "clusters/b"]                  # 읽은 페이지(문맥)
+        cited = ["clusters/zz"] if status == "dangling" else ["clusters/a"]
+        status = "ok" if status in ("empty", "dangling") else status
+        return {"status": status, "answer": answer, "llm_ms": 1234,
                 "error": "응답이 온전하지 않음 (finish_reason=length)" if status == "error" else None,
-                "turns": 1, "cited_pages": [], "retrieved": {"wiki_pages": []},
+                "turns": 1, "cited_pages": cited, "retrieved": {"wiki_pages": read},
                 "token_usage": {"prompt_tokens": 100, "cache_read": 0,
                                 "cache_write": 0, "output_tokens": 10},
-                "turn_details": [{"turn": 1, "calls": [], "prompt_tokens": 100,
-                                  "cache_read": 0, "cache_write": 0, "output_tokens": 10}],
+                "turn_details": [{"turn": 1, "calls": [], "prompt_tokens": 100, "api_ms": 1234,
+                                  "cache_read": 0, "cache_write": 0, "output_tokens": 10,
+                                  "finish_reason": "stop"}],
                 "failed_attempts": ([{"attempt": 1, "error": "429 Too Many Requests",
                                       "wait_s": 5, "ts": 0}] if retry else []),
                 "page_evidence": []}
@@ -281,17 +289,19 @@ def _run_batch_env(tmp: Path):
                                       "corpus_version": "test"},
         "check_wiki_provenance": lambda *a: {"corpus_source": "test",
                                              "corpus_snapshot": "corpus-c3:test"},
+        "check_wiki_manifest": lambda *a: {"documents_sha256": rb.A_DOCUMENTS_SHA256,
+                                           "pages": ["clusters/x.md"]},
         "_git_short_head": lambda: "test",
     }
 
-    def go(max_turns=5, limit=None):
+    def go(max_turns=5, limit=None, models=None, wiki_label="c3"):
         saved = {k: getattr(rb, k) for k in patches}
         cwd = os.getcwd()
         try:
             for k, v in patches.items():
                 setattr(rb, k, v)
             os.chdir(tmp)
-            rb.run_batch([model], str(qpath), str(wiki), "c3", 1, "L", max_turns,
+            rb.run_batch(models or [model], str(qpath), str(wiki), wiki_label, 1, "L", max_turns,
                          False, limit)
         finally:
             os.chdir(cwd)
@@ -385,6 +395,191 @@ def test_run_batch_limit_scope_and_failed_attempts_append():
     retried = [r["qid"] for r in rb._read_jsonl(fa) if r and r.get("attempt") == 1]
     assert retried == ["Q1", "Q2"], retried
     print("  ✓ run_batch(): --limit 범위 밖 오류 행은 그대로, 끊긴 줄 뒤 호출 기록도 온전")
+
+
+
+# ---- A 기준 점검 (#27) ----
+
+def _rows(path):
+    return [r for r in rb._read_jsonl(path) if r]
+
+
+def test_run_batch_empty_answer_and_max_turns_are_error_rows_and_rerun():
+    """A: 빈 답변은 GenerationError 로 오류 행이 되고 다시 돈다. 크래시 행의 답변은 빈칸이다."""
+    tmp = Path(tempfile.mkdtemp())
+    go, calls, outcomes, model, run_dir = _run_batch_env(tmp)
+    answers = tmp / "results/raw/L/system_c/answers.jsonl"
+    outcomes.update(Q1=["empty", "ok"], Q2=["max_turns", "ok"])
+    go()
+    by = {r["qid"]: r for r in _rows(answers)}
+    assert by["Q1"]["status"] == "error" and by["Q1"]["error"].startswith("빈 답변"), by["Q1"]
+    assert by["Q2"]["status"] == "error" and "최대 턴" in by["Q2"]["error"], by["Q2"]
+    assert by["Q2"]["answer"] == "" and by["Q2"]["partial_answer"] == "먼저 목차를 보겠습니다."
+    assert by["Q1"]["citations"] == [] and by["Q2"]["citations"] == [], "A 의 크래시 행처럼 citations 는 비어야 한다"
+    assert by["Q1"]["latency_ms"]["generate"] == 1234
+    calls.clear()
+    go()
+    assert sorted(calls) == ["Q1", "Q2"], calls
+    assert all(r["status"] == "ok" for r in _rows(answers)), _rows(answers)
+    print("  ✓ 빈 답변·최대 턴 → 오류 행(답변 빈칸), 이어하기에서 다시 돔, generate 기록")
+
+
+def test_requeued_rows_leave_answers_even_if_interrupted():
+    """옮긴 오류 행은 answers.jsonl 에서 바로 빠진다. 재실행 전에 멈춰도 토큰이 두 번 세지지 않는다."""
+    tmp = Path(tempfile.mkdtemp())
+    go, calls, outcomes, model, run_dir = _run_batch_env(tmp)
+    answers = tmp / "results/raw/L/system_c/answers.jsonl"
+    fa = run_dir / "failed_attempts.jsonl"
+    outcomes.update(Q1=["error", "interrupt"], Q2=["ok"])
+    go()
+    assert [r["qid"] for r in _rows(answers) if r["status"] == "error"] == ["Q1"]
+    try:
+        go()
+    except KeyboardInterrupt:
+        pass
+    else:
+        raise AssertionError("중단되지 않았다")
+    moved = [r for r in _rows(fa) if r.get("attempt") == "resume-requeued"]
+    assert [r["qid"] for r in moved] == ["Q1"] and moved[0]["tokens"], moved
+    left = {r["qid"]: r for r in _rows(answers)}
+    assert "Q1" not in left and left["Q2"]["status"] == "ok", left
+    print("  ✓ 옮긴 오류 행은 answers.jsonl 에서 즉시 빠짐 (재실행 전 중단에도 중복 없음)")
+
+
+def test_config_change_rows_are_moved_with_tokens():
+    tmp = Path(tempfile.mkdtemp())
+    go, calls, outcomes, model, run_dir = _run_batch_env(tmp)
+    fa = run_dir / "failed_attempts.jsonl"
+    outcomes.update(Q1=["ok", "ok"], Q2=["ok", "ok"])
+    go()
+    calls.clear()
+    # --allow-config-change 를 붙인 것처럼 조건(max_turns)을 바꿔 다시 돌린다
+    orig = rb.preflight_resume
+    rb.preflight_resume = lambda *a, **k: orig(a[0], a[1], a[2], a[3], True, **k)
+    try:
+        go(max_turns=6)
+    finally:
+        rb.preflight_resume = orig
+    kinds = [r.get("attempt") for r in _rows(fa)]
+    assert kinds.count("config-change-requeued") == 2 and sorted(calls) == ["Q1", "Q2"], (kinds, calls)
+    assert all(r.get("tokens") for r in _rows(fa) if r.get("attempt") == "config-change-requeued")
+    print("  ✓ --allow-config-change 로 다시 돈 행도 토큰과 함께 failed_attempts 로 옮김")
+
+
+def test_folder_holds_one_wiki_label():
+    tmp = Path(tempfile.mkdtemp())
+    go, calls, outcomes, model, run_dir = _run_batch_env(tmp)
+    outcomes.update(Q1=["ok"], Q2=["ok"])
+    go(wiki_label="astra")
+    calls.clear()
+    try:
+        go(wiki_label="c3")
+    except SystemExit as e:
+        assert e.code == 2 and calls == [], (e.code, calls)
+        print("  ✓ 다른 wiki_label 행이 있는 결과 폴더에는 돌리지 않음 (exit 2, 호출 0)")
+        return
+    raise AssertionError("막지 않았다")
+
+
+def test_summary_counts_every_model_in_the_run_folder():
+    """DeepSeek 만 따로 돌려도 summary 에 7종 모두 남는다."""
+    tmp = Path(tempfile.mkdtemp())
+    go, calls, outcomes, model, run_dir = _run_batch_env(tmp)
+    other = next(k for k in rb._load_models() if not k.startswith("_") and k != model)
+    outcomes.update(Q1=["ok", "ok"], Q2=["ok", "ok"])
+    go(models=[model])
+    for p in (run_dir / ".partial").glob("*.jsonl"):
+        p.unlink()                                   # 다른 곳에서 클론받은 경우: .partial 은 git 에 없다
+    go(models=[other])
+    summ = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    assert set(summ["results"]) == {model, other}, summ["results"]
+    assert summ["results"][model]["ok"] == 2 and summ["sdk_versions"].get("python"), summ
+    assert summ["documents_sha256"] == rb.A_DOCUMENTS_SHA256
+    print("  ✓ summary 는 run 폴더의 모든 모델을 세고 SDK 버전·입력 sha256 을 남김")
+
+
+def test_citations_and_dangling_follow_a():
+    """A: citations = 모델에게 준 문맥 전부, 문맥 밖 인용은 error='dangling_citations: [...]' 로
+    적고 답변은 두며 다시 돌리지 않는다(ask.py 124~126행, run_eval._is_retryable)."""
+    tmp = Path(tempfile.mkdtemp())
+    go, calls, outcomes, model, run_dir = _run_batch_env(tmp)
+    answers = tmp / "results/raw/L/system_c/answers.jsonl"
+    outcomes.update(Q1=["ok"], Q2=["dangling"])
+    go()
+    by = {r["qid"]: r for r in _rows(answers)}
+    assert [c["chunk_id"] for c in by["Q1"]["citations"]] == ["clusters/a", "clusters/b"], by["Q1"]["citations"]
+    assert by["Q1"]["cited_pages"] == ["clusters/a"] and by["Q1"]["error"] is None
+    assert by["Q2"]["error"] == "dangling_citations: ['clusters/zz']", by["Q2"]["error"]
+    assert by["Q2"]["status"] == "ok" and by["Q2"]["answer"] == "답", by["Q2"]
+    summ = json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))["results"][model]
+    assert summ["ok"] == 2 and summ["err"] == 0, summ
+    calls.clear()
+    go()
+    assert calls == [], calls                       # dangling 행은 다시 돌지 않는다
+    print("  ✓ citations = 읽은 페이지 전부(A 의 문맥 top-5 와 같은 뜻), 문맥 밖 인용은 dangling 표시·재실행 안 함")
+
+
+def test_label_guard_sees_runs_folder_before_first_merge():
+    """첫 실행이 병합 전에 멈춰 answers.jsonl 이 비어 있어도 runs/<label>_runN 으로 다른 위키를 안다."""
+    tmp = Path(tempfile.mkdtemp())
+    base = tmp / "system_c"
+    (base / "runs" / "astra_run1").mkdir(parents=True)
+    try:
+        rb._guard_single_wiki_label(base / "answers.jsonl", "c3")
+    except SystemExit as e:
+        assert e.code == 2
+        rb._guard_single_wiki_label(base / "answers.jsonl", "astra")   # 같은 위키는 통과
+        print("  ✓ answers.jsonl 이 비어도 runs 폴더로 다른 wiki_label 을 막음")
+        return
+    raise AssertionError("막지 않았다")
+
+
+def test_dangling_tolerates_malformed_cited_pages():
+    res = {"retrieved": {"wiki_pages": ["a"]}}
+    assert rb._find_dangling_citations({**res, "cited_pages": ["a", {"x": 1}]}) == ['{"x": 1}']
+    assert rb._find_dangling_citations({**res, "cited_pages": "b"}) == ["b"]
+    assert rb._find_dangling_citations({**res, "cited_pages": None}) == []
+    print("  ✓ cited_pages 가 이상한 형식이어도 멈추지 않고 dangling 으로 보고")
+
+
+def test_wiki_manifest_gate():
+    """manifest 없음·페이지 누락·입력 파일 불일치면 실행 전에 막는다."""
+    tmp = Path(tempfile.mkdtemp())
+    wiki = tmp / "wiki"
+    (wiki / "clusters").mkdir(parents=True)
+    (wiki / "clusters" / "a.md").write_text("x", encoding="utf-8")
+    docs = tmp / "documents.jsonl"
+    docs.write_text('{"text": "t"}\n', encoding="utf-8")
+    sha = rb._file_sha256(docs)
+    saved = (rb._corpus_docs_path, rb.A_DOCUMENTS_SHA256)
+    rb._corpus_docs_path, rb.A_DOCUMENTS_SHA256 = (lambda: docs), sha
+
+    def code(manifest):
+        mp = wiki / rb.MANIFEST_NAME
+        if manifest is None:
+            mp.unlink(missing_ok=True)
+        else:
+            mp.write_text(json.dumps(manifest), encoding="utf-8")
+        try:
+            rb.check_wiki_manifest(wiki, False)
+            return 0
+        except SystemExit as e:
+            return e.code
+    try:
+        good = {"documents_sha256": sha, "pages": ["clusters/a.md"]}
+        assert code(good) == 0
+        assert code(None) == 2
+        assert code({**good, "pages": ["clusters/a.md", "clusters/b.md"]}) == 2
+        assert code({**good, "documents_sha256": "0" * 64}) == 2
+        (wiki / "clusters" / "extra.md").write_text("y", encoding="utf-8")
+        assert code(good) == 2                     # manifest 에 없는 페이지(목차에 나온다)
+        (wiki / "clusters" / "extra.md").unlink()
+        assert code({}) == 2 and code([]) == 2     # 비었거나 dict 가 아닌 manifest 는 멈추지 않고 exit 2
+        docs.write_text('{"text": "changed"}\n', encoding="utf-8")
+        assert code(good) == 2                     # 지금 파일이 A 입력과 다름
+    finally:
+        rb._corpus_docs_path, rb.A_DOCUMENTS_SHA256 = saved
+    print("  ✓ manifest 검사: 없음·페이지 누락·입력 sha256 불일치 → exit 2")
 
 
 if __name__ == "__main__":

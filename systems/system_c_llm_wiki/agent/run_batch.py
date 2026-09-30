@@ -6,18 +6,22 @@ LLM Wiki 배치 평가 러너 (System C) — run_batch.py
 benchmark/questions_v1.jsonl의 질문을 7개 모델로 실행하고
 팀 공용 AnswerRecord v0.3 형식으로 results/raw/<run_label>/system_c/answers.jsonl을 출력한다.
 
-사용법 (리포 루트에서):
+사용법 (리포 루트에서). 실행 조건은 System A 의 test_low_0928 과 같다(7종, effort low, 16000, run 1).
+위키 재구축·링크·검사 절차는 systems/system_c_llm_wiki/CLAUDE.md 를 따른다.
     set -a; . ./.env.local; set +a
 
-    # 스모크 테스트 (2문항, 전 모델)
+    # 스모크 테스트: 개발용 질문셋으로만 한다(benchmark 질문으로 하면 시험셋을 한 번 더 보는 것이다)
     python3 systems/system_c_llm_wiki/agent/run_batch.py \\
-        --wiki-root systems/system_c_llm_wiki/wiki-astra \\
-        --wiki-label astra --models all --limit 2 --run-label smoke_test
+        --wiki-root systems/system_c_llm_wiki/wiki-c3 --wiki-label c3 \\
+        --questions systems/system_a_rag/rag_proto/data/queries.jsonl \\
+        --models all --limit 2 --run-label smoke_c3
 
-    # 본실행
+    # 본실행 (새 run label. test_low_0928 처럼 다른 위키 행이 있는 폴더에는 돌지 않는다)
     python3 systems/system_c_llm_wiki/agent/run_batch.py \\
-        --wiki-root systems/system_c_llm_wiki/wiki-astra \\
-        --wiki-label astra --models all --run-label test_low_0928
+        --wiki-root systems/system_c_llm_wiki/wiki-c3 --wiki-label c3 \\
+        --models all --run-label <합의한 이름>
+
+--allow-corpus-mismatch 와 --allow-config-change 는 본실행에 쓰지 않는다.
 """
 
 import argparse
@@ -32,7 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from run_agent import run_agent, ABSTAIN_PHRASE, MAX_OUTPUT_TOKENS, _build_system_prompt, _load_models, reset_interval_wait, get_interval_wait_s, redact
+from run_agent import run_agent, ABSTAIN_PHRASE, MAX_OUTPUT_TOKENS, _build_system_prompt, _load_models, reset_interval_wait, get_interval_wait_s, redact, _build_user_message, CLIENT_MAX_RETRIES
 
 # ---------------------------------------------------------------------------
 # 상수
@@ -49,6 +53,14 @@ EXPECTED_CORPUS_SOURCE = os.environ.get(
 SNAPSHOT_JSON = REPO_ROOT / "corpus/tiers/c3/metadata/snapshot.json"
 IDENTIFIER_CONFIG_DEFAULT = REPO_ROOT / "systems/system_a_rag/rag_proto/configs/pipeline.yaml"
 REASONING_EFFORT_LABEL = "light"
+# 위키 컴파일러가 남기는 파일. 위키가 온전한지(페이지 누락·입력 파일)를 실행 전에 본다. (#27 A 기준 점검)
+MANIFEST_NAME = "wiki_manifest.json"
+# System A 가 색인한 documents.jsonl(systems/system_a_rag/rag_proto/data/team/documents.jsonl)의
+# sha256. corpus/tiers/c3/processed/documents.jsonl 과 바이트가 같다(9/30 확인, 282문서).
+# snapshot_id 는 라벨이라 본문이 달라도 같을 수 있어서, 위키를 만든 입력 파일 자체를 대조한다.
+A_DOCUMENTS_SHA256 = "71c40454c6695fc6fd13aade191e1a21dfd11e5311def31f1f07adddf1618359"
+# failed_attempts.jsonl 로 옮긴 행의 attempt 값. 옮긴 행은 answers.jsonl 에 두지 않는다.
+REQUEUE_KINDS = ("resume-requeued", "config-change-requeued")
 
 
 # ---------------------------------------------------------------------------
@@ -214,6 +226,97 @@ def _tool_defs_digest() -> str:
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
+def _corpus_docs_path() -> Path:
+    p = Path(EXPECTED_CORPUS_SOURCE)
+    return p if p.is_absolute() else REPO_ROOT / p
+
+
+def check_wiki_manifest(wiki_root: Path, allow_mismatch: bool) -> dict:
+    """컴파일러가 남긴 wiki_manifest.json 으로 위키가 온전한지 본다. (#27 A 기준 점검)
+
+    - 페이지 누락: 출처 검사(check_wiki_provenance)는 있는 페이지만 본다. 엔티티 하나가
+      컴파일에 실패해 페이지가 빠져도 통과했다(33페이지 위키로 확인).
+    - 입력 파일: 위키를 만든 documents.jsonl 이 A 가 색인한 파일과 바이트까지 같아야 한다.
+    """
+    path = wiki_root / MANIFEST_NAME
+    problems: list = []
+    manifest: dict = {}
+    if not path.exists():
+        problems.append(f"{MANIFEST_NAME} 없음(고친 컴파일러로 다시 만든 위키가 아니다)")
+    else:
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            problems.append(f"{MANIFEST_NAME} 을 읽지 못함 ({exc})")
+        if not isinstance(manifest, dict) or not manifest.get("pages"):
+            problems.append("manifest 에 페이지 목록이 없다")
+            manifest = {}
+    if manifest:
+        pages = manifest.get("pages") or []
+        missing = [pg for pg in pages if not (wiki_root / pg).exists()]
+        if missing:
+            problems.append(f"컴파일되지 않은 페이지 {len(missing)}개: {missing[:5]}")
+        # 에이전트 목차(run_agent._build_toc)는 폴더의 .md 를 모두 보여 준다. manifest 에 없는
+        # 페이지가 있으면 이번 컴파일이 만들지 않은 내용을 모델이 읽는다. A 도 색인 청크 수가
+        # chunks.jsonl 과 양쪽으로 같아야 돈다. (#27 A 기준 점검)
+        on_disk = {pg.relative_to(wiki_root).as_posix() for pg in wiki_root.rglob("*.md")
+                   if pg.stem.lower() != "readme"}
+        extra = sorted(on_disk - set(pages))
+        if extra:
+            problems.append(f"manifest 에 없는 페이지 {len(extra)}개(에이전트 목차에 나온다): {extra[:5]}")
+        built_from = manifest.get("documents_sha256")
+        if built_from != A_DOCUMENTS_SHA256:
+            problems.append(f"위키 입력 sha256 {built_from} 이 A 의 색인 입력 {A_DOCUMENTS_SHA256[:12]}... 과 다르다")
+        docs = _corpus_docs_path()
+        current = _file_sha256(docs) if docs.exists() else None
+        if current != A_DOCUMENTS_SHA256:
+            problems.append(f"지금 코퍼스 파일 {docs} 의 sha256 {current} 이 A 의 색인 입력과 다르다")
+    if not problems:
+        print(f"[확인] 위키 manifest: 페이지 {len(manifest.get('pages') or [])}개 모두 있음, "
+              f"입력 sha256 = A 색인 입력 ({A_DOCUMENTS_SHA256[:12]}...)")
+        return manifest
+    msg = (
+        f"[경고] {wiki_root} 위키가 온전하지 않다 - " + " / ".join(problems) + "\n"
+        "        위키를 --force 로 다시 컴파일하거나, 의도한 것이면 --allow-corpus-mismatch 를 붙일 것."
+    )
+    if not allow_mismatch:
+        print(msg, file=sys.stderr)
+        raise SystemExit(2)
+    print(msg + "\n        (--allow-corpus-mismatch 로 계속 진행)", file=sys.stderr)
+    return manifest
+
+
+def _guard_single_wiki_label(answers_path: Path, wiki_label: str) -> None:
+    """한 결과 폴더에는 위키 하나만 둔다. (#27 A 기준 점검)
+
+    A 의 answers.jsonl 은 (qid, model, run) 이 한 줄씩이다. C 는 키에 wiki_label 이 있어서,
+    다른 위키로 돌린 행이 같은 폴더에 있으면 (qid, model, run) 이 두 줄이 된다
+    (test_low_0928 에 새 위키를 넣으면 280행이 겹친다).
+    """
+    labels = {r.get("wiki_label") for r in _read_jsonl(answers_path) if r is not None}
+    # answers.jsonl 이 아직 비어 있어도(첫 실행이 병합 전에 멈춘 경우) runs/<label>_runN 폴더로 안다.
+    runs_dir = answers_path.parent / "runs"
+    if runs_dir.is_dir():
+        labels |= {d.name.rsplit("_run", 1)[0] for d in runs_dir.iterdir()
+                   if d.is_dir() and "_run" in d.name}
+    others = sorted((str(x) for x in labels if x != wiki_label))
+    if others:
+        print(f"[오류] {answers_path} 에 다른 wiki_label({', '.join(others)}) 로 만든 행이 있다.\n"
+              f"        한 폴더에는 위키 하나만 둔다. 새 --run-label 로 돌릴 것.", file=sys.stderr)
+        raise SystemExit(2)
+
+
+def _sdk_versions() -> dict:
+    """실행한 SDK 버전. 같은 설정이라도 SDK 가 다르면 요청 모양이 달라질 수 있다. (#27 A 기준 점검)"""
+    out: dict = {"python": sys.version.split()[0]}
+    for name in ("openai", "anthropic", "httpx", "httpx2"):
+        try:
+            out[name] = __import__(name).__version__
+        except Exception:  # noqa: BLE001
+            out[name] = None
+    return out
+
+
 def _safe_console() -> None:
     """Windows 기본 콘솔(cp949)처럼 출력 인코딩이 모든 문자를 담지 못해도 멈추지 않게 한다.
     담지 못하는 문자는 '?' 로 바뀐다. (#27 동수님 리뷰 P1-1)"""
@@ -280,7 +383,14 @@ def _record_key(rec: dict) -> tuple:
     return (rec.get("qid"), rec.get("model"), rec.get("run", 1), rec.get("wiki_label"))
 
 
-def _upsert_answers(answers_path: Path, partial_dir: Path) -> tuple:
+def _requeued_row(rec: dict, requeued: set | None) -> bool:
+    """failed_attempts.jsonl 로 옮긴 행인가. attempt_id 가 없는 옛 행은 건드리지 않는다."""
+    if not requeued or not rec.get("attempt_id"):
+        return False
+    return (rec.get("qid"), rec.get("model"), rec.get("run"), rec.get("attempt_id")) in requeued
+
+
+def _upsert_answers(answers_path: Path, partial_dir: Path, requeued: set | None = None) -> tuple:
     """기존 answers.jsonl 위에 이번 실행의 partial 결과를 덮어씌운다. (#23 3절)
 
     - 이번 run 폴더의 .partial 만 재생한다. 예전에는 runs/*/.partial 전체를 폴더
@@ -290,6 +400,9 @@ def _upsert_answers(answers_path: Path, partial_dir: Path) -> tuple:
     - .partial 마지막 줄이 끊겨 있어도 멈추지 않고 그 줄만 건너뛴다. 예전에는 이후
       모든 병합이 JSONDecodeError 로 실패했다.
     - 임시파일 → os.replace 로 원자적으로 쓴다.
+    - failed_attempts.jsonl 로 옮긴 행(requeued)은 넣지 않는다. A 도 이어하기 때 크래시 행을
+      answers.jsonl 에서 빼서 옮긴다. 그래야 answers + failed_attempts 가 과금 합계가 되고,
+      재실행 전에 멈춰도 같은 토큰이 두 번 세지지 않는다. (#27 A 기준 점검)
     """
     records: dict = {}
     order: list = []
@@ -303,27 +416,24 @@ def _upsert_answers(answers_path: Path, partial_dir: Path) -> tuple:
         records[k] = rec
         return "replaced" if seen else "added"
 
-    def feed(path: Path, count_ops: bool) -> tuple:
+    def feed(path: Path) -> set:
         nonlocal skipped_broken
-        rep = add = 0
+        put_keys: set = set()
         for rec in _read_jsonl(path):
             if rec is None:
                 skipped_broken += 1
                 continue
-            op = put(rec)
-            if count_ops:
-                if op == "replaced":
-                    rep += 1
-                else:
-                    add += 1
-        return rep, add
+            if _requeued_row(rec, requeued):
+                continue
+            put(rec)
+            put_keys.add(_record_key(rec))
+        return put_keys
 
-    feed(answers_path, False)                     # 커밋돼 있는 줄 포함
+    feed(answers_path)                            # 커밋돼 있는 줄 포함
     before = set(records)
     touched: set = set()
     for partial_path in sorted(partial_dir.glob("*.jsonl")):
-        touched |= set(_latest_rows(partial_path, _record_key))
-        feed(partial_path, True)
+        touched |= feed(partial_path)
     # 키 단위로 센다. 줄 단위로 세면 .partial 안의 재실행 줄 때문에 '유지'가 음수가 됐다.
     replaced = len(touched & before)
     added = len(touched - before)
@@ -343,16 +453,16 @@ def _partition_partial(path: Path, cfg_hash: str) -> tuple:
     """(다시 돌릴 필요 없는 키, 다시 돌릴 오류 행, 설정이 다른 행) 로 나눈다."""
     keep: set = set()
     error_rows: list = []
-    stale: dict = {}
+    stale: list = []
     # 키마다 마지막 줄만 본다. 다시 돌려 성공한 행 앞에 남은 이전 오류 행은 이미 처리됐다.
     # 예전에는 모든 줄을 세서 같은 오류 행을 이어하기마다 다시 옮겼다. (#27 3차 리뷰 3)
     latest = _latest_rows(path, lambda r: (r["qid"], r["model"], r["run"]))
     for key, r in latest.items():
         row_cfg = r.get("config_hash")
         if cfg_hash and row_cfg and row_cfg != cfg_hash:
-            stale[row_cfg] = stale.get(row_cfg, 0) + 1
+            stale.append(r)
             continue
-        if r.get("status") == "error" or r.get("error"):
+        if _is_retryable(r):
             error_rows.append(r)      # 완료로 세지 않고 다시 돌린다
             continue
         keep.add(key)
@@ -363,7 +473,7 @@ def _already_requeued(failed_attempts_path: Path) -> set:
     """이미 failed_attempts.jsonl 로 옮긴 (qid, model, run, attempt_id)."""
     done: set = set()
     for r in _read_jsonl(failed_attempts_path):
-        if r is not None and r.get("attempt") == "resume-requeued":
+        if r is not None and r.get("attempt") in REQUEUE_KINDS:
             done.add((r.get("qid"), r.get("model"), r.get("run"), r.get("attempt_id")))
     return done
 
@@ -384,13 +494,16 @@ def preflight_resume(partial_dir: Path, models: list, cfg_hash: str,
     plan: dict = {}
     stale_all: dict = {}
     errors_by_model: dict = {}
+    stale_by_model: dict = {}
     for model_name in models:
         path = partial_dir / f"{model_name}.jsonl"
-        keep, error_rows, stale = _partition_partial(path, cfg_hash)
+        keep, error_rows, stale_rows = _partition_partial(path, cfg_hash)
         plan[model_name] = keep
         errors_by_model[model_name] = error_rows
-        for h, n in stale.items():
-            stale_all[h] = stale_all.get(h, 0) + n
+        stale_by_model[model_name] = stale_rows
+        for r in stale_rows:
+            h = r.get("config_hash")
+            stale_all[h] = stale_all.get(h, 0) + 1
 
     if stale_all:
         detail = ", ".join(f"{h}×{n}" for h, n in sorted(stale_all.items()))
@@ -408,8 +521,12 @@ def preflight_resume(partial_dir: Path, models: list, cfg_hash: str,
 
     already = _already_requeued(failed_attempts_path)
     moved = 0
-    for model_name, error_rows in errors_by_model.items():
-        todo = [r for r in error_rows
+    for model_name in models:
+        # 설정이 바뀐 행(--allow-config-change)도 다시 돌리므로, 오류 행과 같이 과금 기록을 옮긴다.
+        # 예전에는 옮기지 않아 그 행의 토큰이 invocations.jsonl 에만 남았다. (#27 A 기준 점검)
+        candidates = ([("resume-requeued", r) for r in errors_by_model[model_name]]
+                      + [("config-change-requeued", r) for r in stale_by_model[model_name]])
+        todo = [(kind, r) for kind, r in candidates
                 if (scope_qids is None or r.get("qid") in scope_qids)
                 and (r.get("qid"), r.get("model"), r.get("run"), r.get("attempt_id")) not in already]
         if not todo:
@@ -417,9 +534,9 @@ def preflight_resume(partial_dir: Path, models: list, cfg_hash: str,
         # 과금 기록을 버리지 않고 옮긴다
         _ensure_trailing_newline(failed_attempts_path)
         with open(failed_attempts_path, "a", encoding="utf-8") as f:
-            for r in todo:
+            for kind, r in todo:
                 f.write(json.dumps({
-                    "attempt": "resume-requeued",
+                    "attempt": kind,
                     "qid": r.get("qid"), "model": r.get("model"), "run": r.get("run"),
                     "error": redact(r.get("error") or r.get("status") or "")[:500],
                     "tokens": r.get("tokens"),
@@ -546,10 +663,15 @@ def _extract_identifiers(text: str) -> list:
 
 
 def _build_citations(result: dict, wiki_root: str) -> list:
-    """cited_pages를 공용 Citation 형식으로 옮긴다. (#23 3절)
+    """모델에게 문맥으로 준 페이지(읽은 페이지 전부)를 공용 Citation 형식으로 옮긴다.
 
-    RAG의 chunk_id 자리에 위키 페이지 ID가, source_path에 그 페이지 파일이 들어간다.
-    재순위 단계가 없으므로 rerank_score는 None.
+    System A 의 citations 는 모델에게 준 문맥 top-5 전부다(ask.py 의 citations=result.candidates).
+    모델이 실제로 인용했는지와 관계없다. C 의 문맥은 read_page 로 읽은 페이지이므로 그 목록을
+    읽은 순서대로 넣는다. 예전에는 모델이 적은 cited_pages 만 넣어, 같은 필드인데 A 는 문맥 전체,
+    C 는 모델이 고른 일부라 채점 근거의 기준이 달랐다. 모델이 고른 인용은 cited_pages 에
+    그대로 남는다(A 의 답변 속 [chunk_id] 에 해당). (#27 A 기준 점검)
+    RAG 의 chunk_id 자리에 위키 페이지 ID 가, source_path 에 그 페이지 파일이 들어간다.
+    재순위 단계가 없으므로 rerank_score 는 None.
     """
     root = wiki_root.rstrip("/")
     return [
@@ -558,8 +680,28 @@ def _build_citations(result: dict, wiki_root: str) -> list:
             "source_path": f"{root}/{pid}.md",
             "rerank_score": None,
         }
-        for pid in (result.get("cited_pages") or [])
+        for pid in ((result.get("retrieved") or {}).get("wiki_pages") or [])
     ]
+
+
+def _find_dangling_citations(result: dict) -> list:
+    """모델이 인용했지만 읽지 않은 페이지. A 의 schema.find_dangling_citations 에 해당한다
+    (답변이 인용한 chunk_id 중 문맥에 없는 것). 정렬해서 돌려준다."""
+    raw = result.get("cited_pages")
+    if isinstance(raw, str):
+        raw = [raw]
+    elif not isinstance(raw, list):
+        raw = []
+    # 모델이 문자열이 아닌 항목을 보내도 멈추지 않는다. 그런 항목은 읽은 페이지일 수 없으니 dangling 이다.
+    cited = {c if isinstance(c, str) else json.dumps(c, ensure_ascii=False, sort_keys=True) for c in raw}
+    read = set((result.get("retrieved") or {}).get("wiki_pages") or [])
+    return sorted(cited - read, key=str)
+
+
+def _is_retryable(rec: dict) -> bool:
+    """다시 돌릴 행. A 의 run_eval._is_retryable 과 같다: error 가 있고 답변이 없는 행.
+    dangling_citations 행은 답변이 있는 정상 생성이라 다시 돌리지 않는다. (#27 A 기준 점검)"""
+    return rec.get("status") == "error" or (bool(rec.get("error")) and not rec.get("answer"))
 
 
 def _to_answer_record(
@@ -595,7 +737,14 @@ def _to_answer_record(
     # prompt는 모든 provider에서 캐시 포함 전체 입력이므로 읽기·쓰기를 모두 뺀다.
     uncached_input = max(0, prompt - cache_read - cache_write)
 
-    answer = result.get("answer", "")
+    answer = result.get("answer", "") or ""
+    # A 의 크래시 행처럼 오류 행의 답변은 비운다. Claude 경로는 도구 호출 옆의 서두 문장
+    # ("먼저 목차를 확인하겠습니다")이 answer 에 남아, 오류 행인데 답이 있는 것처럼 보였다.
+    # 남은 문장은 C 전용 필드 partial_answer 에만 둔다. (#27 A 기준 점검)
+    partial_answer = None
+    if status == "error" and answer:
+        partial_answer = answer
+        answer = ""
     abstained = ABSTAIN_TEXT in answer
 
     return {
@@ -608,7 +757,8 @@ def _to_answer_record(
         "query_mode": "simple",
         "question": q["question"],
         "answer": answer,
-        "citations": _build_citations(result, wiki_root),
+        # A 의 크래시 행(run_eval._error_record)은 citations 가 비어 있다. 오류 행은 A 와 같게 비운다.
+        "citations": [] if status == "error" else _build_citations(result, wiki_root),
         "retrieved": {
             "bm25": [],
             "vector": [],
@@ -620,7 +770,8 @@ def _to_answer_record(
         "latency_ms": {
             "retrieve": 0,
             "rerank": 0,
-            "generate": 0,
+            # A 의 generate 와 같은 뜻: LLM 호출 시간 합(간격 대기 제외). 예전에는 0 고정이었다. (#27 A 기준 점검)
+            "generate": int(result.get("llm_ms") or 0),
             "total": elapsed_ms,
         },
         "tokens": {
@@ -641,6 +792,7 @@ def _to_answer_record(
         "wiki_build": wiki_build,
         "wiki_label": wiki_label,
         "attempt_id": attempt_id,
+        "partial_answer": partial_answer,
         "wiki_corpus_source": corpus_meta.get("wiki_corpus_source"),
         "wiki_corpus_snapshot": corpus_meta.get("wiki_corpus_snapshot"),
         # 실제로 전송된 경우에만 라벨을 남긴다 (전송 안 됐는데 low로 기록되는 것 방지)
@@ -680,10 +832,14 @@ def run_batch(
         _corpus_meta_pre.get("corpus_snapshot"), allow_corpus_mismatch
     )
 
+    wiki_manifest = check_wiki_manifest(Path(wiki_root), allow_corpus_mismatch)
+
     # ---- 출력 디렉토리 구조 ----
     base_dir = Path("results") / "raw" / run_label / "system_c"
     run_dir = base_dir / "runs" / f"{wiki_label}_run{run}"
     partial_dir = run_dir / ".partial"
+    answers_path = base_dir / "answers.jsonl"
+    _guard_single_wiki_label(answers_path, wiki_label)
     for d in [base_dir, run_dir, partial_dir]:
         d.mkdir(parents=True, exist_ok=True)
 
@@ -703,7 +859,11 @@ def run_batch(
         for line in f:
             line = line.strip()
             if line:
-                questions.append(json.loads(line))
+                rec = json.loads(line)
+                # 개발용 질문셋(A 의 data/queries.jsonl)은 qid 를 쓴다. 질문 문장만 에이전트에 넘긴다.
+                if "query_id" not in rec and "qid" in rec:
+                    rec["query_id"] = rec["qid"]
+                questions.append(rec)
     if limit:
         questions = questions[:limit]
 
@@ -740,6 +900,10 @@ def run_batch(
         ).hexdigest(),
         "abstain_phrase": ABSTAIN_PHRASE,
         "tool_defs_sha256": _tool_defs_digest(),
+        # 첫 user 메시지 틀과 클라이언트 설정도 조건이다. 바뀌면 해시가 바뀐다. (#27 A 기준 점검)
+        "user_message_template": _build_user_message("{question}"),
+        "client": {"max_retries": CLIENT_MAX_RETRIES, "timeout": "sdk-default"},
+        "documents_sha256": wiki_manifest.get("documents_sha256"),
         "identifier_rules": {"patterns": list(IDENTIFIER_PATTERNS),
                              "stopwords": list(IDENTIFIER_STOPWORDS)},
         "models": models_db,
@@ -759,6 +923,12 @@ def run_batch(
         partial_dir, ordered_models, cfg_hash, failed_attempts_path, allow_config_change,
         scope_qids={q["query_id"] for q in questions},
     )
+
+    # 옮긴 행은 지금 바로 answers.jsonl 에서 뺀다. 재실행 전에 멈춰도 두 번 세지지 않게 한다.
+    # A 의 이어하기도 크래시 행을 먼저 옮긴 뒤 돈다. (#27 A 기준 점검)
+    requeued = _already_requeued(failed_attempts_path)
+    if answers_path.exists() and any(_requeued_row(r, requeued) for r in _read_jsonl(answers_path) if r):
+        _upsert_answers(answers_path, partial_dir, requeued)
 
     # ---- models.json 스냅샷 저장 ----
     # 이어하기 검사가 exit 3 으로 멈추면 기존 사본을 덮어쓰지 않도록 검사 뒤로 옮겼다. (#27 3차 리뷰)
@@ -780,7 +950,7 @@ def run_batch(
             done = resume_plan.get(model_name, set())   # 선행 검사 결과 (#23 리뷰)
 
             ok = err = abstained_count = 0
-            model_start = time.time()
+            model_start = time.perf_counter()
 
             print(
                 f"\n[모델 시작] {model_name} ({len(questions)}문항 중 {len(done)}개 기존)",
@@ -799,7 +969,7 @@ def run_batch(
                         f"  [{i}/{len(questions)}] {qid} ...",
                         end=" ", flush=True, file=sys.stderr,
                     )
-                    t0 = time.time()
+                    t0 = time.perf_counter()   # A 처럼 시스템 시계 조정에 흔들리지 않는 시계
                     reset_interval_wait()
                     error = None
                     result: dict = {}
@@ -815,9 +985,27 @@ def run_batch(
                         )
                         q_status = result.get("status", "ok")
                         # 잘림·거절·호출 실패로 status=error 가 돌아오면 사유도 함께 남긴다.
-                        if q_status == "error" and result.get("error"):
-                            error = result["error"]
+                        if q_status == "error":
+                            error = result.get("error") or "status=error"
+                        elif q_status == "max_turns":
+                            # 제한 턴 안에 제출하지 못했다. A 의 잘린 응답처럼 오류로 두고 다시 돈다.
+                            error = f"최대 턴({max_turns}) 도달 - submit_answer 없이 끝남"
+                            q_status = "error"
+                        elif not (result.get("answer") or "").strip():
+                            # A 는 빈 답변을 GenerationError 로 오류 행에 남기고 다시 돌린다
+                            # (s6_generate.py 228·301행). C 도 같게 한다. (#27 A 기준 점검)
+                            tds = result.get("turn_details") or []
+                            fr = tds[-1].get("finish_reason") if tds else None
+                            error = f"빈 답변 (finish_reason={fr})"
+                            q_status = "error"
+                        if error:
                             print(f"ERR({error[:60]})", file=sys.stderr)
+                        else:
+                            # A 처럼 읽지 않은 페이지를 인용하면 error 에 적고 답변은 둔다(ask.py 124~126행).
+                            # 오류 행이 아니므로 다시 돌리지 않는다. (#27 A 기준 점검)
+                            dangling = _find_dangling_citations(result)
+                            if dangling:
+                                error = f"dangling_citations: {dangling}"
                     except Exception as e:
                         q_status = "error"
                         error = redact(f"{e.__class__.__name__}: {e}")
@@ -831,7 +1019,7 @@ def run_batch(
                         })
 
                     # Kimi 호출 간격 대기(min_interval_s)는 A·B처럼 지연에서 제외한다
-                    elapsed_ms = int((time.time() - t0 - get_interval_wait_s()) * 1000)
+                    elapsed_ms = int((time.perf_counter() - t0 - get_interval_wait_s()) * 1000)
 
                     record = _to_answer_record(
                         q, result,
@@ -844,7 +1032,7 @@ def run_batch(
                         agent_commit=agent_commit,
                         trace_path=trace_path_rel,
                         elapsed_ms=elapsed_ms,
-                        status=q_status if not error else "error",
+                        status=q_status,          # dangling_citations 행은 ok 로 남는다(A 와 같음)
                         error=error,
                         corpus_meta=corpus_meta,
                         cfg_hash=cfg_hash,
@@ -872,6 +1060,7 @@ def run_batch(
                             "cache_write": td.get("cache_write"),
                             "output_tokens": td.get("output_tokens"),
                             "finish_reason": td.get("finish_reason"),
+                            "api_ms": td.get("api_ms"),
                             "usage_raw": td.get("usage_raw"),
                         }
                         inv_f.write(json.dumps(inv_line, ensure_ascii=False) + "\n")
@@ -883,14 +1072,14 @@ def run_batch(
                         fail_f.write(json.dumps(fa_line, ensure_ascii=False) + "\n")
                     fail_f.flush()
 
-                    if error:
+                    if q_status == "error":
                         err += 1
                     else:
                         ok += 1
                         if record.get("abstained"):
                             abstained_count += 1
 
-                    status_str = "OK" if not error else f"ERR"
+                    status_str = "OK" if q_status != "error" else "ERR"
                     tok = record["tokens"]
                     print(
                         f"{status_str} turns={record['turns']} "
@@ -898,7 +1087,7 @@ def run_batch(
                         file=sys.stderr,
                     )
 
-            model_elapsed = time.time() - model_start
+            model_elapsed = time.perf_counter() - model_start
             summary_models[model_name] = {
                 "ok": ok, "err": err, "abstained": abstained_count,
                 "elapsed_s": round(model_elapsed, 1),
@@ -917,8 +1106,8 @@ def run_batch(
     # .partial/ 은 .gitignore 대상이다. 그래서 "partial만 모아 새로 쓰기"를 하면
     # 클론받은 곳에서 한 모델만 재실행할 때 커밋돼 있던 다른 모델 줄이 전부 사라진다.
     # 기존 answers.jsonl을 읽어두고 (qid, model, run) 단위로 이번 결과만 갈아끼운다. (#23 3절)
-    answers_path = base_dir / "answers.jsonl"
-    merged, kept, replaced, added = _upsert_answers(answers_path, partial_dir)
+    merged, kept, replaced, added = _upsert_answers(
+        answers_path, partial_dir, _already_requeued(failed_attempts_path))
     print(
         f"[병합] {answers_path} — 총 {merged}줄 "
         f"(유지 {kept} / 교체 {replaced} / 신규 {added})",
@@ -927,19 +1116,35 @@ def run_batch(
 
     finished_at = datetime.now(timezone.utc).isoformat()
 
-    # ---- summary 통계: partial 파일에서 키마다 마지막 행으로 재집계 (재개 실행 포함) ----
-    # 줄을 모두 세면 다시 돌려 성공한 행과 이전 오류 행이 둘 다 세지고, 끊긴 마지막 줄 하나로
-    # 배치 전체가 마지막에 실패했다. answers.jsonl 과 같은 키로 최신 행만 센다. (#27 동수님 리뷰 P1-2)
+    # ---- summary 통계: 병합한 answers.jsonl 에서 키마다 한 행으로 센다 (재개 실행 포함) ----
+    # 예전에는 .partial 의 줄을 모두 세서 재실행 행과 이전 오류 행이 둘 다 세지고, 끊긴 마지막
+    # 줄 하나로 배치 전체가 마지막에 실패했다. (#27 동수님 리뷰 P1-2)
+    # 이번에 돌린 모델만이 아니라 이 폴더의 같은 위키·회차 모델을 모두 센다. DeepSeek 만 따로
+    # 돌리면 summary·README 표에 DeepSeek 한 줄만 남았다. 이번에 안 돌린 모델의 소요 시간은
+    # 이전 summary 값을 쓴다. (#27 A 기준 점검)
+    prev_results: dict = {}
+    try:
+        prev_results = json.loads((run_dir / "summary.json").read_text(encoding="utf-8")).get("results") or {}
+    except (OSError, json.JSONDecodeError):
+        pass
+    # A 의 summarize_batch 처럼 커밋되는 answers.jsonl 에서 센다. .partial 은 git 에 없어서
+    # 다른 곳에서 한 모델만 다시 돌리면 나머지 모델이 표에서 빠졌다. (#27 A 기준 점검)
+    rows_here = [r for r in _read_jsonl(answers_path)
+                 if r is not None and r.get("wiki_label") == wiki_label and r.get("run", 1) == run]
+    by_model: dict = {}
+    for r in rows_here:
+        by_model.setdefault(r.get("model"), []).append(r)
+    all_models = list(ordered_models) + sorted(m for m in by_model if m not in ordered_models)
     final_results: dict[str, dict] = {}
-    for model_name in ordered_models:
-        partial_path = partial_dir / f"{model_name}.jsonl"
-        if partial_path.exists():
-            records = list(_latest_rows(partial_path, _record_key).values())
+    for model_name in all_models:
+        records = by_model.get(model_name)
+        if records:
             final_results[model_name] = {
-                "ok": sum(1 for r in records if not r.get("error")),
-                "err": sum(1 for r in records if r.get("error")),
+                # A 의 summarize_batch 처럼 다시 돌릴 행만 오류로 센다(dangling 행은 답변으로 센다)
+                "ok": sum(1 for r in records if not _is_retryable(r)),
+                "err": sum(1 for r in records if _is_retryable(r)),
                 "abstained": sum(1 for r in records if r.get("abstained")),
-                "elapsed_s": summary_models.get(model_name, {}).get("elapsed_s", 0),
+                "elapsed_s": (summary_models.get(model_name) or prev_results.get(model_name) or {}).get("elapsed_s", 0),
             }
         else:
             final_results[model_name] = summary_models.get(
@@ -959,12 +1164,16 @@ def run_batch(
         "wiki_corpus_snapshot": corpus_meta.get("wiki_corpus_snapshot"),
         "questions_sha256": questions_sha256,
         "reasoning_effort": REASONING_EFFORT_LABEL,
-        "models": ordered_models,
+        "models": all_models,
         "results": final_results,
+        "max_turns": max_turns,
         "agent_commit": agent_commit,
         "started_at": started_at,
         "finished_at": finished_at,
         "total_records": merged,
+        "documents_sha256": wiki_manifest.get("documents_sha256"),
+        "wiki_manifest_pages": len(wiki_manifest.get("pages") or []),
+        "sdk_versions": _sdk_versions(),
     }
     (run_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -999,6 +1208,20 @@ def _write_readme(base_dir: Path, summary: dict, models_db: dict) -> None:
         f"- 추론 강도: {summary['reasoning_effort']} (effort=low)",
         f"- 출력 상한: max_tokens=16000",
         f"- temperature: 보내지 않음",
+        f"- 클라이언트: 재시도 {CLIENT_MAX_RETRIES}회, 타임아웃 SDK 기본값(연결 5초·응답 600초) - System A 와 같음",
+        "- 지연: `latency_ms.generate` = LLM 호출 시간 합(System A 의 generate 와 같은 뜻), 호출 간격 대기 제외",
+        f"- 위키 입력 sha256: `{summary.get('documents_sha256')}` (System A 색인 입력과 같아야 함)",
+        f"- SDK: {summary.get('sdk_versions')}",
+        "",
+        "## System A 와의 설계상 차이 (고치지 않고 적는 것)",
+        f"- 문맥을 검색 top-5 로 한 번에 받지 않고 도구(list_pages·read_page)로 읽고 submit_answer 로 제출한다. 최대 {summary.get('max_turns')}턴, 턴마다 출력 상한 16000.",
+        "- `citations` 는 모델에게 준 문맥이다. A 는 재순위 top-5(늘 5개), C 는 read_page 로 읽은 페이지 전부(개수가 문항마다 다르다). 모델이 고른 인용은 A 는 답변 속 [chunk_id], C 는 `cited_pages` 다.",
+        "- GPT 3종은 Responses API 로 부른다(A 는 Chat Completions). 도구와 effort 를 함께 쓰려면 Responses 가 필요하다.",
+        "- 목차(list_pages)에 페이지 ID 가 보이고, 클러스터 페이지 ID 에는 hex ID 가 들어 있다.",
+        f"- 위키는 {summary.get('wiki_build')}(참가자 아님)가 C3 발췌를 읽어 만든다. A 는 XML 주석·라이선스 머리말을 지운 뒤 청킹한다.",
+        "- C 는 문항마다 SDK 클라이언트를 새로 만든다(A 는 참가자마다 하나). 그래서 C 의 generate 에는 문항마다 연결 수립 시간이 한 번 들어간다.",
+        "- 페이지 사이 링크(## 관련 페이지)는 scope.json 에서 만든다.",
+        "- Kimi 호출 간격: C 는 호출마다 21초, A 는 문항마다 50초. 둘 다 지연에서 뺀다.",
         "",
         "## 참가자 모델",
         "",
