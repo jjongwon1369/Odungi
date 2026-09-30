@@ -37,7 +37,11 @@ for name, cfg in models.items():
         cols = [u.get("input_tokens"), u.get("output_tokens"),
                 u.get("cache_read_input_tokens"), u.get("cache_creation_input_tokens")]
     else:
-        base = os.environ.get(cfg["base_url_env"]) if cfg.get("base_url_env") else "https://api.openai.com/v1"
+        # models.json 의 base_url 만 쓴다. 폴백 금지 — 다른 provider 키가
+        # api.openai.com 으로 전송될 수 있다. (#23)
+        base = cfg.get("base_url")
+        if not base:
+            print(f"{name:18} base_url없음 — models.json 확인"); continue
         url = base.rstrip("/") + "/chat/completions"
         h = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
         pl = {"model": cfg["model_id"], "messages": [{"role": "user", "content": PROMPT}],

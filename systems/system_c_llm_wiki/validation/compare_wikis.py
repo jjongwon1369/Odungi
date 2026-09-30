@@ -19,11 +19,44 @@
         systems/system_c_llm_wiki/wiki-gpt-6-astra
 """
 import json
+import os
 import re
 import sys
 from pathlib import Path
 
-CORPUS_RAW = Path("corpus/raw/connectedhomeip")
+# 식별자 보존율의 기준은 **컴파일러가 실제로 읽은 본문**이다.
+# corpus/raw 원본을 기준으로 삼으면, documents.jsonl 에서 정당하게 빠진 식별자까지
+# '누락'으로 세어 보존율이 실제보다 낮게 나온다. (#23 리뷰 5번)
+CORPUS_DOCS = Path(os.environ.get(
+    "CORPUS_DOCS", "corpus/tiers/c3/processed/documents.jsonl"))
+
+
+def load_corpus_texts() -> dict:
+    """documents.jsonl → {상대경로: 본문}. 위키 프론트매터의 source_paths 와 맞춘다."""
+    if not CORPUS_DOCS.exists():
+        raise SystemExit(
+            f"[오류] {CORPUS_DOCS} 가 없습니다.\n"
+            "       python3 scripts/corpus/build_tiers.py --tier c3 로 먼저 만드세요.\n"
+            "       (식별자 보존율은 컴파일러가 실제로 읽은 본문을 기준으로 셉니다.)"
+        )
+    prefix = "corpus/raw/connectedhomeip/"
+    out = {}
+    for line in CORPUS_DOCS.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        d = json.loads(line)
+        m = d.get("metadata", {})
+        rel = m.get("relative_path") or m.get("source_path") or m.get("raw_path")
+        if not rel:
+            continue
+        if rel.startswith(prefix):
+            rel = rel[len(prefix):]
+        out[rel] = d.get("text", "")
+    return out
+
+
+CORPUS_TEXTS = load_corpus_texts()
 SECTIONS = ["## 개요", "## 스펙", "## SDK 정의", "## 구현", "## 예시", "## 관련 문서"]
 ID_PATTERNS = [re.compile(r"\b0x[0-9A-Fa-f]{4}\b"),
                re.compile(r'name="([A-Za-z][A-Za-z0-9_]{2,})"')]
@@ -51,9 +84,8 @@ def split_fm(text: str):
 def origin_ids(src_list):
     found = set()
     for rel in src_list:
-        f = CORPUS_RAW / rel
-        if f.exists():
-            t = f.read_text(encoding="utf-8", errors="ignore")
+        t = CORPUS_TEXTS.get(rel)
+        if t:
             for pat in ID_PATTERNS:
                 for m in pat.finditer(t):
                     found.add(m.group(1) if m.groups() else m.group(0))
@@ -83,7 +115,18 @@ def load(root: Path):
     return pages
 
 
+def _safe_console() -> None:
+    """Windows 기본 콘솔(cp949)에서 출력할 수 없는 문자가 있어도 멈추지 않게 한다.
+    담지 못하는 문자는 '?' 로 바뀐다. (#27 동수님 리뷰 P1-1)"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main():
+    _safe_console()
     roots = [Path(a) for a in sys.argv[1:]]
     if len(roots) < 2:
         sys.exit("위키 경로를 2개 이상 지정하세요.")
