@@ -151,7 +151,7 @@ src/app_clusters/*.adoc 경로는 이 checkout의 파일 경로로 간주하지 
 8. 2~3개의 가전 제품 범위를 선택하더라도 냉장고의 보조 Device Type까지 세면 공식 ID 수는 늘어난다.
    제품군 수와 Device Type ID 수를 구분하도록 계획을 보완할 필요가 있다.
 
-이번 단계에서 corpus-plan.md 자체나 Corpus 범위 설정/SSOT는 변경·확정하지 않았다.
+이번 조사 단계에서는 Corpus 범위 설정과 SSOT를 변경하거나 확정하지 않았다.
 
 ## 8. 산출물 검증
 
