@@ -58,12 +58,12 @@ corpus/
 ├── raw/connectedhomeip/          # 고정 Git blob 원본 282개(로컬 payload)
 ├── processed/documents.jsonl     # 파일별 정규화 문서 282개(로컬 payload)
 ├── metadata/                     # scope, manifest, 관계, 통계, 검증, freeze gate
+├── tiers/                        # C3/C6/C12별 격리된 scope와 생성 산출물
 ├── research/                     # 범위·결손·revision·라이선스 검토 근거
 ├── CORPUS_V1.md                  # 상세 사용자/담당자 설명서
 ├── DATASET_CARD.md               # 데이터셋 카드
 ├── CHANGELOG.md                  # 버전 변경 기록
 ├── HANDOFF.md                    # RAG/LLM Wiki 담당자 인계서
-├── ROADMAP.md                    # C3→C6→C12 규모 확장 실험 계획
 └── PUBLISHING.md                 # 공개·재배포 경계
 scripts/corpus/                   # 추출·정규화·검증 CLI와 테스트
 ```
@@ -148,17 +148,22 @@ source revision, 2회 결정적 재생성이 모두 통과했다. 13개 단위 �
 warning은 허용된 coverage gap 21개, revision 의미 정합성 미평가, tokenizer 미결정이다.
 자세한 기계 판독 결과는 [validation_report.json](metadata/validation_report.json)에 있다.
 
-## Scale Experiment Roadmap
+## Corpus Tiers
 
-현재 3개 제품군 Corpus는 향후 규모 비교 실험의 C3 기준선이다. 동일한 SSOT, metadata schema,
-normalization, validation 규칙을 유지하면서 C6와 C12로 확장한다.
+동일한 SSOT, metadata schema, normalization, validation 규칙으로 C3, C6, C12 구축을 완료했다.
 
 ```text
 C3 (3 product families) ⊂ C6 (6) ⊂ C12 (12)
 ```
 
-각 tier는 이전 tier의 superset이어야 한다. 확장할 때마다 documents, relations, clusters, raw size,
-token count를 기록하고 다음 성능·비용 지표와 함께 비교한다.
+| Tier | Documents | Relations | Unique clusters | Validation | Deterministic rebuild |
+|---|---:|---:|---:|---|---|
+| C3 | 282 | 764 | 23 | 오류 0건 | pass |
+| C6 | 317 | 1,059 | 29 | 오류 0건 | pass |
+| C12 | 369 | 1,633 | 36 | 오류 0건 | pass |
+
+Source, raw content hash, document association 및 semantic relation의 tier 간 포함 관계도 검증했다.
+향후 비교 실험에서는 다음 성능·비용 지표를 함께 기록한다.
 
 - Answer accuracy와 groundedness
 - Hallucination rate와 identifier accuracy
@@ -167,7 +172,9 @@ token count를 기록하고 다음 성능·비용 지표와 함께 비교한다.
 - Ingestion / compilation cost
 
 이 실험은 제품군 수만 비교하는 것이 아니라 실제 정보량 증가가 단일 RAG, 분해형 RAG, LLM Wiki에
-미치는 영향을 분석한다. 세부 계획과 tier 정의는 [ROADMAP.md](ROADMAP.md)를 기준으로 한다.
+미치는 영향을 분석한다. Tier 선언은 [configs/tiers.json](configs/tiers.json), 결과는 각 tier의
+`metadata/statistics.json`, `metadata/validation_report.json`, `metadata/tier_inclusion_report.json`을
+기준으로 한다.
 
 ## Version
 

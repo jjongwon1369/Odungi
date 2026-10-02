@@ -29,19 +29,24 @@ validation failure 0개다. 입력 checkout은 clean 상태여야 하며 빌드 
 상세 사용법과 데이터 계약은 [Corpus README](corpus/README.md), 실행 CLI와 실패 조건은
 [Corpus pipeline README](scripts/corpus/README.md)를 참고한다.
 
-## Corpus 확장 로드맵
+## Corpus tier
 
-현재 3개 제품군 Corpus를 C3 기준선으로 사용하고, 동일한 SSOT·metadata schema·정규화·검증 규칙을
-유지하며 C6, C12로 단계적으로 확장한다. 각 단계는 이전 단계의 superset이다.
+동일한 SSOT·metadata schema·정규화·검증 규칙을 사용하는 C3, C6, C12 Corpus 구축을 완료했다.
+각 단계는 이전 단계의 strict superset이며, tier별 산출물은 `corpus/tiers/`에 분리되어 있다.
 
 ```text
 C3 (3 product families) ⊂ C6 (6) ⊂ C12 (12)
 ```
 
-확장 실험에서는 answer accuracy, groundedness, hallucination rate, identifier accuracy, retrieval 성능,
-응답 지연, query token 사용량, ingestion/compilation 비용을 비교한다. Documents, relations, clusters,
-raw size, token count도 함께 기록해 단순 제품군 수가 아닌 실제 정보량 증가의 영향을 분석한다.
-세부 계획은 [Corpus ROADMAP](corpus/ROADMAP.md)에 있다.
+| Tier | Documents | Relations | Unique clusters |
+|---|---:|---:|---:|
+| C3 | 282 | 764 | 23 |
+| C6 | 317 | 1,059 | 29 |
+| C12 | 369 | 1,633 | 36 |
+
+모든 tier는 validation error 0건과 결정적 재생성 검증을 통과했다. 이후 실험에서는 answer accuracy,
+groundedness, hallucination rate, identifier accuracy, retrieval 성능, 응답 지연, token 사용량과
+ingestion/compilation 비용을 비교한다.
 
 
 ## 프로젝트 폴더 구조
