@@ -1,3 +1,6 @@
+> **사용하지 않는 결과 (2026-10-06 표시).** 이 280줄은 이슈 #23 수정 전, 원본 전체로 만든 옛 위키(`wiki-astra`)와 옛 프롬프트로 만든 답변입니다.
+> 본실험 C 결과는 [`results/raw/run_c3_0930/system_c`](../../run_c3_0930/system_c/) 입니다. 비교·채점·인용에 쓰지 않습니다.
+
 # System C — LLM Wiki · test_low_0928
 
 `answers.jsonl`이 채점 대상입니다. 한 줄이 (qid, model, run) 하나입니다.
