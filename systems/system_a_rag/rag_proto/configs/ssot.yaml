@@ -1,6 +1,10 @@
 # SSOT (Single Source of Truth)
 # 명세서 §01 원칙 2: SSOT는 2단계로 적용한다. 지금은 Phase 2(integrated).
 #
+# v0.5 — 코퍼스 확대 실험용으로 C12 tier로 전환 (2026-11-21).
+#   근거: Odungi corpus/tiers/c12/metadata/snapshot.json, System C c12 실행(PR #32, run_c12_1120)과 같은 입력.
+#   입력 documents.jsonl sha256 8e20ab2d…ea71(369문서), scope.json sha256 18c9cd20…fdd4.
+#   C3 결과(test_low_0928)를 재현하려면 v0.4 라벨이 들어 있는 커밋(0faca51 등)에서 돌린다.
 # v0.4 — 코퍼스 라벨을 C3 tier로 전환 (2026-09-27).
 #   근거: Odungi corpus/tiers/c3/metadata/snapshot.json (PR #8), 카톡 9/26 "3종으로만 확정".
 #   C3는 현재 main 스크립트로 snapshot_id가 그대로 재현되는 유일한 라벨이다.
@@ -17,8 +21,8 @@ corpus:
 
   # 같은 commit에서 Device Type 3개 → 6개 → 12개 코퍼스가 갈라진다.
   # commit만으로는 구분이 안 되므로 snapshot_id를 함께 기록한다.
-  corpus_version: "0.1-c3"                  # C3 tier (v1.0 candidate 기반). tiers/c3/metadata/snapshot.json
-  snapshot_id: "corpus-c3:2f00a8077e434eb6657fb661112012abeceba70c0d1e0633e73f6b7b9c7afb8e"
+  corpus_version: "0.1-c12"                 # C12 tier. tiers/c12/metadata/snapshot.json
+  snapshot_id: "corpus-c12:4dd5f8b69bb7a8a3183d8babf8135891122d79d2fb2596431e53c0c11da1f2ad"
   frozen: false                             # licensing_review / cross_review 미완
 
 phase: integrated
