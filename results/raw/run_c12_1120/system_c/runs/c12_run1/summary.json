@@ -1,0 +1,80 @@
+{
+  "run_label": "run_c12_1120",
+  "wiki_label": "c12",
+  "wiki_build": "openai/gpt-6-astra",
+  "wiki_root": "systems/system_c_llm_wiki/wiki-c12",
+  "ssot_commit": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+  "corpus_snapshot": "corpus-c12:4dd5f8b69bb7a8a3183d8babf8135891122d79d2fb2596431e53c0c11da1f2ad",
+  "corpus_version": "0.1-c12",
+  "wiki_corpus_source": "corpus/tiers/c12/processed/documents.jsonl",
+  "wiki_corpus_snapshot": "corpus-c12:4dd5f8b69bb7a8a3183d8babf8135891122d79d2fb2596431e53c0c11da1f2ad",
+  "questions_sha256": "9be6a33eb122d892ee8f6f6fb0ddfd1b40f1bda8ebedbe36e6d199a3105389a2",
+  "reasoning_effort": "light",
+  "models": [
+    "kimi-k3",
+    "gpt-6-luna",
+    "gpt-6-sol",
+    "gpt-5.6-sol",
+    "claude-sonnet-5",
+    "claude-opus-5-5",
+    "deepseek-flash"
+  ],
+  "results": {
+    "kimi-k3": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 3,
+      "elapsed_s": 2910.4
+    },
+    "gpt-6-luna": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 4,
+      "elapsed_s": 267.5
+    },
+    "gpt-6-sol": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 3,
+      "elapsed_s": 243.6
+    },
+    "gpt-5.6-sol": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 3,
+      "elapsed_s": 318.3
+    },
+    "claude-sonnet-5": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 3,
+      "elapsed_s": 297.6
+    },
+    "claude-opus-5-5": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 3,
+      "elapsed_s": 313.6
+    },
+    "deepseek-flash": {
+      "ok": 40,
+      "err": 0,
+      "abstained": 3,
+      "elapsed_s": 213.3
+    }
+  },
+  "max_turns": 30,
+  "agent_commit": "a730070",
+  "started_at": "2026-11-20T12:33:36.028674+00:00",
+  "finished_at": "2026-11-20T13:49:42.306302+00:00",
+  "total_records": 280,
+  "documents_sha256": "8e20ab2dea3cf1905ad2fe97faedfd0d7ba965d1cb9bb7ac0e908940c845ea71",
+  "wiki_manifest_pages": 56,
+  "sdk_versions": {
+    "python": "3.14.3",
+    "openai": "3.19.0",
+    "anthropic": "1.9.0",
+    "httpx": "0.28.1",
+    "httpx2": "2.13.0"
+  }
+}
