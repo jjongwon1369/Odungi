@@ -257,8 +257,8 @@ def test_check_flags_old_output_and_passes_new():
 def cli_tree() -> Path:
     """리포 루트처럼 생긴 임시 폴더: scope.json + 기본 wiki/ + 다른 위키 두 벌."""
     tmp = Path(tempfile.mkdtemp())
-    (tmp / "corpus/metadata").mkdir(parents=True)
-    (tmp / "corpus/metadata/scope.json").write_text(json.dumps(SCOPE), encoding="utf-8")
+    (tmp / "corpus/tiers/c12").mkdir(parents=True)
+    (tmp / "corpus/tiers/c12/scope.json").write_text(json.dumps(SCOPE), encoding="utf-8")
     for rel in ("systems/system_c_llm_wiki/wiki", "wiki-env", "wiki-flag"):
         make_wiki(tmp / rel)
     return tmp

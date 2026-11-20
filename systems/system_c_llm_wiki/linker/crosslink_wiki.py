@@ -23,7 +23,7 @@ import re
 import sys
 from pathlib import Path
 
-SCOPE_JSON = Path("corpus/metadata/scope.json")
+SCOPE_JSON = Path("corpus/tiers/c12/scope.json")
 DEFAULT_WIKI_ROOT = Path("systems/system_c_llm_wiki/wiki")
 # 대상 위키. main() 이 --wiki-root > 환경변수 WIKI_ROOT > 기본값 순으로 다시 정한다.
 # 아래 경로 헬퍼는 모두 이 전역을 호출 시점에 읽는다 (컴파일 모델별 비교용)

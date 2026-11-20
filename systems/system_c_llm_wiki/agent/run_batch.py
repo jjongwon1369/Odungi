@@ -49,8 +49,8 @@ CORPUS_PHASE = "integrated"
 # 조용히 못 읽고, snapshot 대조를 건너뛴 채 통과한다. (#23 리뷰)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXPECTED_CORPUS_SOURCE = os.environ.get(
-    "CORPUS_DOCS", "corpus/tiers/c3/processed/documents.jsonl")
-SNAPSHOT_JSON = REPO_ROOT / "corpus/tiers/c3/metadata/snapshot.json"
+    "CORPUS_DOCS", "corpus/tiers/c12/processed/documents.jsonl")
+SNAPSHOT_JSON = REPO_ROOT / "corpus/tiers/c12/metadata/snapshot.json"
 IDENTIFIER_CONFIG_DEFAULT = REPO_ROOT / "systems/system_a_rag/rag_proto/configs/pipeline.yaml"
 REASONING_EFFORT_LABEL = "light"
 # 위키 컴파일러가 남기는 파일. 위키가 온전한지(페이지 누락·입력 파일)를 실행 전에 본다. (#27 A 기준 점검)
@@ -58,7 +58,7 @@ MANIFEST_NAME = "wiki_manifest.json"
 # System A 가 색인한 documents.jsonl(systems/system_a_rag/rag_proto/data/team/documents.jsonl)의
 # sha256. corpus/tiers/c3/processed/documents.jsonl 과 바이트가 같다(9/30 확인, 282문서).
 # snapshot_id 는 라벨이라 본문이 달라도 같을 수 있어서, 위키를 만든 입력 파일 자체를 대조한다.
-A_DOCUMENTS_SHA256 = "71c40454c6695fc6fd13aade191e1a21dfd11e5311def31f1f07adddf1618359"
+A_DOCUMENTS_SHA256 = "8e20ab2dea3cf1905ad2fe97faedfd0d7ba965d1cb9bb7ac0e908940c845ea71"
 # failed_attempts.jsonl 로 옮긴 행의 attempt 값. 옮긴 행은 answers.jsonl 에 두지 않는다.
 REQUEUE_KINDS = ("resume-requeued", "config-change-requeued")
 

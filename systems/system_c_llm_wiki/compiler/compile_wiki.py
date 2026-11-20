@@ -35,7 +35,7 @@ MODEL_NAME = os.environ.get("WIKI_COMPILER_MODEL", "TODO-내일-확정")
 
 # 팀 공용 입력. corpus/HANDOFF.md: "RAG와 LLM Wiki가 함께 사용하는 282개 정규화 문서".
 # 원본 전문(corpus/raw)이 아니라 이 파일을 읽어야 System A/B와 입력 범위가 같아진다.
-CORPUS_DOCS = Path(os.environ.get("CORPUS_DOCS", "corpus/tiers/c3/processed/documents.jsonl"))
+CORPUS_DOCS = Path(os.environ.get("CORPUS_DOCS", "corpus/tiers/c12/processed/documents.jsonl"))
 # 코퍼스 메타데이터. 컴파일 산출물에 snapshot_id 를 박아 위키가 어느 코퍼스에서 나왔는지
 # 레코드와 대조할 수 있게 한다. (#23 1-4)
 # 실제로 읽은 documents.jsonl 줄에서 채운다. load_documents() 가 설정한다.
@@ -59,7 +59,7 @@ PROVIDER_BASE_URL = {
     "openai": "https://api.openai.com/v1",
     "anthropic": "https://api.anthropic.com",
 }
-SCOPE_JSON = Path("corpus/metadata/scope.json")
+SCOPE_JSON = Path("corpus/tiers/c12/scope.json")
 # 기본 출력 위치. --wiki-root 로 바꿔서 여러 벌의 위키를 나란히 만들 수 있다
 # (컴파일 모델별 비교 실험용).
 WIKI_ROOT = Path(os.environ.get("WIKI_ROOT", "systems/system_c_llm_wiki/wiki"))
@@ -594,7 +594,7 @@ def load_documents() -> dict:
         raise SystemExit(
             f"[오류] {CORPUS_DOCS} 가 없습니다.\n"
             "       티어 산출물은 git에 올라가지 않으므로 로컬에서 만들어야 합니다:\n"
-            "         python3 scripts/corpus/build_tiers.py --tier c3\n"
+            "         python3 scripts/corpus/build_tiers.py --tier c12\n"
             "       (상태 확인: --status-only / 자세한 내용은 corpus/HANDOFF.md)"
         )
     prefix = "corpus/raw/connectedhomeip/"
