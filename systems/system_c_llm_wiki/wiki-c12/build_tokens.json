@@ -1,0 +1,416 @@
+{
+  "wiki_root": "systems/system_c_llm_wiki/wiki-c12",
+  "compiled_by": "openai/gpt-6-astra",
+  "corpus_source": "corpus/tiers/c12/processed/documents.jsonl",
+  "corpus_snapshot": "corpus-c12:4dd5f8b69bb7a8a3183d8babf8135891122d79d2fb2596431e53c0c11da1f2ad",
+  "ssot_commit": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+  "ledger": "build_calls.jsonl",
+  "calls": 56,
+  "columns": [
+    "uncached_input",
+    "cache_creation",
+    "cache_read",
+    "output"
+  ],
+  "note": "A·B 와 같은 4열이다. uncached_input 은 캐시를 제외한 입력이므로 provider 사이에 의미가 같다. 그래도 합산하지 말 것.",
+  "totals": {
+    "uncached_input": 168,
+    "cache_creation": 690805,
+    "cache_read": 0,
+    "output": 185590
+  },
+  "per_entity": {
+    "base:AlarmBase": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 5204,
+      "cache_read": 0,
+      "output": 2902
+    },
+    "base:Label": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1213,
+      "cache_read": 0,
+      "output": 347
+    },
+    "base:MatterDevicesRegistry": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 8426,
+      "cache_read": 0,
+      "output": 3910
+    },
+    "base:ModeBase": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 18799,
+      "cache_read": 0,
+      "output": 5758
+    },
+    "base:RootNodeAndBaseDeviceType": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 2713,
+      "cache_read": 0,
+      "output": 1248
+    },
+    "cluster:data_model/1.7/clusters/Binding-Cluster.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 15831,
+      "cache_read": 0,
+      "output": 4661
+    },
+    "cluster:data_model/1.7/clusters/Descriptor-Cluster.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 6121,
+      "cache_read": 0,
+      "output": 2671
+    },
+    "cluster:data_model/1.7/clusters/DishwasherAlarm.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 7837,
+      "cache_read": 0,
+      "output": 3244
+    },
+    "cluster:data_model/1.7/clusters/Mode_Dishwasher.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 3067,
+      "cache_read": 0,
+      "output": 2028
+    },
+    "cluster:data_model/1.7/clusters/FanControl.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 19843,
+      "cache_read": 0,
+      "output": 7096
+    },
+    "cluster:data_model/1.7/clusters/FixedLabel-Cluster.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 3329,
+      "cache_read": 0,
+      "output": 1530
+    },
+    "cluster:data_model/1.7/clusters/Groups.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 12014,
+      "cache_read": 0,
+      "output": 4491
+    },
+    "cluster:data_model/1.7/clusters/ResourceMonitoring.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 19243,
+      "cache_read": 0,
+      "output": 5696
+    },
+    "cluster:data_model/1.7/clusters/Humidistat.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 17217,
+      "cache_read": 0,
+      "output": 6291
+    },
+    "cluster:data_model/1.7/clusters/Identify.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 10059,
+      "cache_read": 0,
+      "output": 4009
+    },
+    "cluster:data_model/1.7/clusters/LaundryDryerControls.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 6857,
+      "cache_read": 0,
+      "output": 2620
+    },
+    "cluster:data_model/1.7/clusters/LaundryWasherControls.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 7957,
+      "cache_read": 0,
+      "output": 3604
+    },
+    "cluster:data_model/1.7/clusters/Mode_LaundryWasher.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 3098,
+      "cache_read": 0,
+      "output": 2032
+    },
+    "cluster:data_model/1.7/clusters/MicrowaveOvenControl.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 13172,
+      "cache_read": 0,
+      "output": 6214
+    },
+    "cluster:data_model/1.7/clusters/Mode_MicrowaveOven.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 2620,
+      "cache_read": 0,
+      "output": 1658
+    },
+    "cluster:data_model/1.7/clusters/OnOff.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 14443,
+      "cache_read": 0,
+      "output": 6138
+    },
+    "cluster:data_model/1.7/clusters/OperationalState.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 18318,
+      "cache_read": 0,
+      "output": 6155
+    },
+    "cluster:data_model/1.7/clusters/Mode_RVCClean.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 3352,
+      "cache_read": 0,
+      "output": 2358
+    },
+    "cluster:data_model/1.7/clusters/OperationalState_RVC.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 5199,
+      "cache_read": 0,
+      "output": 3499
+    },
+    "cluster:data_model/1.7/clusters/Mode_RVCRun.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 3577,
+      "cache_read": 0,
+      "output": 2868
+    },
+    "cluster:data_model/1.7/clusters/RefrigeratorAlarm.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 5986,
+      "cache_read": 0,
+      "output": 2716
+    },
+    "cluster:data_model/1.7/clusters/Mode_Refrigerator.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 3070,
+      "cache_read": 0,
+      "output": 2067
+    },
+    "cluster:data_model/1.7/clusters/WaterContentMeasurement.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 6442,
+      "cache_read": 0,
+      "output": 2897
+    },
+    "cluster:data_model/1.7/clusters/Scenes.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 38080,
+      "cache_read": 0,
+      "output": 8868
+    },
+    "cluster:data_model/1.7/clusters/ServiceArea.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 30704,
+      "cache_read": 0,
+      "output": 7332
+    },
+    "cluster:data_model/1.7/clusters/TemperatureAlarm.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 3718,
+      "cache_read": 0,
+      "output": 1918
+    },
+    "cluster:data_model/1.7/clusters/TemperatureControl.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 7914,
+      "cache_read": 0,
+      "output": 3870
+    },
+    "cluster:data_model/1.7/clusters/TemperatureMeasurement.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 5595,
+      "cache_read": 0,
+      "output": 2571
+    },
+    "cluster:data_model/1.7/clusters/Thermostat.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 108420,
+      "cache_read": 0,
+      "output": 14870
+    },
+    "cluster:data_model/1.7/clusters/Mode_Thermostat.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 2958,
+      "cache_read": 0,
+      "output": 2060
+    },
+    "cluster:data_model/1.7/clusters/ThermostatUserInterfaceConfiguration.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 7523,
+      "cache_read": 0,
+      "output": 3635
+    },
+    "cluster:data_model/1.7/clusters/UserLabel-Cluster.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 4185,
+      "cache_read": 0,
+      "output": 2017
+    },
+    "cluster:data_model/1.7/clusters/WaterHeaterManagement.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 9826,
+      "cache_read": 0,
+      "output": 5371
+    },
+    "cluster:data_model/1.7/clusters/Mode_WaterHeater.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 3463,
+      "cache_read": 0,
+      "output": 2488
+    },
+    "device:data_model/1.7/device_types/AirPurifier.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1331,
+      "cache_read": 0,
+      "output": 500
+    },
+    "device:data_model/1.7/device_types/CookSurface.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1251,
+      "cache_read": 0,
+      "output": 450
+    },
+    "device:data_model/1.7/device_types/Cooktop.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1134,
+      "cache_read": 0,
+      "output": 285
+    },
+    "device:data_model/1.7/device_types/Dishwasher.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1361,
+      "cache_read": 0,
+      "output": 509
+    },
+    "device:data_model/1.7/device_types/ExtractorHood.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1234,
+      "cache_read": 0,
+      "output": 364
+    },
+    "device:data_model/1.7/device_types/HumidityConditioner.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1293,
+      "cache_read": 0,
+      "output": 451
+    },
+    "device:data_model/1.7/device_types/LaundryDryer.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1363,
+      "cache_read": 0,
+      "output": 509
+    },
+    "device:data_model/1.7/device_types/LaundryWasher.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1363,
+      "cache_read": 0,
+      "output": 488
+    },
+    "device:data_model/1.7/device_types/MicrowaveOven.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1326,
+      "cache_read": 0,
+      "output": 437
+    },
+    "device:data_model/1.7/device_types/Refrigerator.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1354,
+      "cache_read": 0,
+      "output": 488
+    },
+    "device:data_model/1.7/device_types/RoboticVacuumCleaner.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1306,
+      "cache_read": 0,
+      "output": 364
+    },
+    "device:data_model/1.7/device_types/RoomAirConditioner.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1770,
+      "cache_read": 0,
+      "output": 834
+    },
+    "device:data_model/1.7/device_types/TemperatureControlledCabinet.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 1446,
+      "cache_read": 0,
+      "output": 573
+    },
+    "device:data_model/1.7/device_types/WaterHeater.xml": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 2014,
+      "cache_read": 0,
+      "output": 674
+    },
+    "guides:all": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 8479,
+      "cache_read": 0,
+      "output": 5702
+    },
+    "examples:all": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 191217,
+      "cache_read": 0,
+      "output": 14484
+    },
+    "misc:uncategorized": {
+      "attempts": 1,
+      "uncached_input": 3,
+      "cache_creation": 4170,
+      "cache_read": 0,
+      "output": 2770
+    }
+  }
+}

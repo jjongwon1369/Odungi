@@ -65,14 +65,14 @@ from pathlib import Path
 # 저장소 루트 기준으로 잡는다. 실행 위치 기준이면 다른 디렉터리에서 돌렸을 때 기본 파일을
 # 못 찾는다. (run_batch.REPO_ROOT 와 같은 방식)
 REPO_ROOT = Path(__file__).resolve().parents[3]
-EXPECTED_SOURCE = "corpus/tiers/c3/processed/documents.jsonl"
+EXPECTED_SOURCE = "corpus/tiers/c12/processed/documents.jsonl"
 DOCS_DEFAULT = REPO_ROOT / EXPECTED_SOURCE
-SNAPSHOT_JSON_DEFAULT = REPO_ROOT / "corpus/tiers/c3/metadata/snapshot.json"
+SNAPSHOT_JSON_DEFAULT = REPO_ROOT / "corpus/tiers/c12/metadata/snapshot.json"
 # tier c3 사본. products/clusters/source_sets 는 corpus/metadata/scope.json 과 같고 excluded_* 도 있다.
-SCOPE_JSON_DEFAULT = REPO_ROOT / "corpus/tiers/c3/scope.json"
+SCOPE_JSON_DEFAULT = REPO_ROOT / "corpus/tiers/c12/scope.json"
 PIPELINE_YAML_DEFAULT = REPO_ROOT / "systems/system_a_rag/rag_proto/configs/pipeline.yaml"
 # System A 가 색인한 documents.jsonl 의 sha256. run_batch.A_DOCUMENTS_SHA256 과 같은 값이다.
-A_DOCUMENTS_SHA256 = "71c40454c6695fc6fd13aade191e1a21dfd11e5311def31f1f07adddf1618359"
+A_DOCUMENTS_SHA256 = "8e20ab2dea3cf1905ad2fe97faedfd0d7ba965d1cb9bb7ac0e908940c845ea71"
 # 팀이 정한 위키 컴파일 모델 (rag_proto CLAUDE.md: gpt-6-astra 는 C 위키 구축 전용)
 EXPECTED_COMPILED_BY = "openai/gpt-6-astra"
 MANIFEST_NAME = "wiki_manifest.json"        # compile_wiki.MANIFEST_NAME
