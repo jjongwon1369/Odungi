@@ -1,0 +1,208 @@
+{
+  "per_model": {
+    "gpt-6-luna": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 3568,
+        "cache_creation": 95013,
+        "cache_read": 0,
+        "output": 2389
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 16238,
+        "max": 24141
+      },
+      "billed_tokens": {
+        "uncached_input": 3568,
+        "cache_creation": 95013,
+        "cache_read": 0,
+        "output": 2389
+      }
+    },
+    "deepseek-flash": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 98506,
+        "cache_creation": 0,
+        "cache_read": 6272,
+        "output": 24514
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 17589,
+        "max": 38617
+      },
+      "billed_tokens": {
+        "uncached_input": 98506,
+        "cache_creation": 0,
+        "cache_read": 6272,
+        "output": 24514
+      }
+    },
+    "kimi-k3": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 4750,
+        "cache_creation": 87296,
+        "cache_read": 11008,
+        "output": 11741
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 24074,
+        "max": 50574
+      },
+      "billed_tokens": {
+        "uncached_input": 4750,
+        "cache_creation": 87296,
+        "cache_read": 11008,
+        "output": 11741
+      }
+    },
+    "claude-sonnet-5": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 171518,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 9158
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 17205,
+        "max": 26788
+      },
+      "billed_tokens": {
+        "uncached_input": 171518,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 9158
+      }
+    },
+    "gpt-6-sol": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 3568,
+        "cache_creation": 95013,
+        "cache_read": 0,
+        "output": 3214
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 16180,
+        "max": 25169
+      },
+      "billed_tokens": {
+        "uncached_input": 3568,
+        "cache_creation": 95013,
+        "cache_read": 0,
+        "output": 3214
+      }
+    },
+    "claude-opus-5-5": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 171598,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 20948
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 18368,
+        "max": 32198
+      },
+      "billed_tokens": {
+        "uncached_input": 171598,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 20948
+      }
+    },
+    "gpt-5.6-sol": {
+      "answers": 40,
+      "errors": 0,
+      "tokens": {
+        "uncached_input": 3568,
+        "cache_creation": 95013,
+        "cache_read": 0,
+        "output": 4708
+      },
+      "retried_failures": 0,
+      "retried_failure_tokens": {
+        "uncached_input": 0,
+        "cache_creation": 0,
+        "cache_read": 0,
+        "output": 0
+      },
+      "latency_ms": {
+        "p50": 16296,
+        "max": 25328
+      },
+      "billed_tokens": {
+        "uncached_input": 3568,
+        "cache_creation": 95013,
+        "cache_read": 0,
+        "output": 4708
+      }
+    }
+  },
+  "skipped_participants": {},
+  "questions": 40,
+  "runs": 1,
+  "query_mode": "simple",
+  "corpus_commit": "1ac132b5ecd42cb6c78772f2576ed6f7fc814183",
+  "corpus_snapshot": "corpus-c12:4dd5f8b69bb7a8a3183d8babf8135891122d79d2fb2596431e53c0c11da1f2ad",
+  "corpus_version": "0.1-c12",
+  "config_hash": "7ea3fe637dd8174e",
+  "code_commit": "11165b80be91ce7123bdac7e78289ade8cd9f9aa",
+  "code_dirty": false,
+  "code_dirty_files": [],
+  "code_commits_all": [
+    "11165b80be91ce7123bdac7e78289ade8cd9f9aa"
+  ],
+  "fake_llm": false
+}
